@@ -38,6 +38,12 @@ export const view = { fpv: false, follow: false, frame: null };
 export const drone = {
   mode: 'IDLE',
   source: 'manual',
+  // The last mission phase the board reported, kept for the fault line: "the board is
+  // still in GROUND" is only useful if the panel can say GROUND without a frame in hand.
+  boardMode: '',
+  // The board's own above-ground height, once it has reported one. Null means "no
+  // frame", which is different from 0 ("on the pad").
+  boardAgl: null,
   pos: new THREE.Vector3(GROUND_STATION.x, 0, GROUND_STATION.z),
   vel: new THREE.Vector3(),
   yaw: 0,
@@ -233,9 +239,30 @@ const num = v => (v === undefined || v === '' || Number.isNaN(+v) ? NaN : +v);
 // seconds is the ack window: long enough for the firmware's 20 ms mission job plus a
 // climb to show up in a frame, short enough that a command the board will never
 // take stops being reported as "pending" and starts being reported as a fault.
-export const pilot = { want: '', at: 0, acked: false };
+export const pilot = { want: '', at: 0, acked: false, sent: false, why: '' };
 
 const PILOT_ACK_S = 8;
+
+// How a command reaches the board. The transport is a UI concern -- it is the
+// simulator's serial panel being typed into -- so the scene does not import it: the
+// board link installs the writer at start-up and this module only says *what* to send.
+// An uninstalled hook is not a silent failure: `pilot.why` keeps the reason.
+let commandSender = null;
+export function setCommandSender(fn) { commandSender = typeof fn === 'function' ? fn : null; }
+
+// Verbs the firmware's own ground-command grammar accepts (firmware/drone/src/main.cpp,
+// onGroundCommand). A verb that is not in this table is a scene-only move and is left
+// out of the wire rather than sent as something the board would ignore.
+const WIRE_VERB = { takeoff: 'takeoff', land: 'land', patrol: 'patrol' };
+
+function sendToBoard(verb) {
+  const wire = WIRE_VERB[verb];
+  if (!wire) { pilot.sent = false; pilot.why = ''; return; }
+  if (!commandSender) { pilot.sent = false; pilot.why = '没有接到仿真器的下行通道'; return; }
+  const why = commandSender(wire);
+  pilot.sent = !why;
+  pilot.why = why || '';
+}
 
 const WANTED_MODES = {
   takeoff: ['CLIMB', 'TRANSIT', 'DWELL', 'PATROL'],
@@ -245,13 +272,31 @@ const WANTED_MODES = {
   land: ['LAND', 'DESCEND', 'GROUND', 'LANDED', 'IDLE'],
 };
 
+function pilotExpired() {
+  return !!pilot.want && !pilot.acked && (Date.now() - pilot.at) / 1000 >= PILOT_ACK_S;
+}
+
 function pilotPending() {
-  return !!pilot.want && !pilot.acked && (Date.now() - pilot.at) / 1000 < PILOT_ACK_S;
+  return !!pilot.want && !pilot.acked && !pilotExpired();
 }
 
 function pilotAgrees(mode) {
   if (!pilotPending()) return true;
   return (WANTED_MODES[pilot.want] || []).includes(mode);
+}
+
+// A request the board never answered stops being a request. Without this, `pilot.want`
+// outlived its own window and the next board frame took the "nothing is pending" branch
+// -- which is permissive by design -- so a GROUND frame was read as *agreement* and the
+// panel announced 「板子已执行 takeoff」 for an aircraft that never left the pad. The
+// timeout is a fault, and it is reported as one, once.
+function expirePilot() {
+  if (!pilotExpired()) return;
+  const verb = pilot.want;
+  pilot.want = '';
+  drone.alert = `板子 ${PILOT_ACK_S} 秒内没有认「${verb}」` +
+    (pilot.why ? `：${pilot.why}` : '：板子还在 ' + (drone.boardMode || '未上报'));
+  pilot.why = '';
 }
 
 export function pilotCommand(verb) {
@@ -264,6 +309,9 @@ export function pilotCommand(verb) {
   pilot.want = verb;
   pilot.at = Date.now();
   pilot.acked = false;
+  sendToBoard(verb);
+  if (pilot.sent) drone.alert = `已把 ${verb} 发给板子，等它确认`;
+  else if (pilot.why) drone.alert = `本地已 ${verb}，但没送到板子：${pilot.why}`;
 }
 
 export function applyBoardCommand(cmd) {
@@ -272,6 +320,11 @@ export function applyBoardCommand(cmd) {
 
   const alt = num(cmd.agl !== undefined && cmd.agl !== '' ? cmd.agl : cmd.alt);
   if (alt >= 0) drone.targetAlt = Math.min(45, alt);
+  // The scene's own altitude is what the panel calls 高度, and in the air the board's
+  // AGL is the only honest value for it: a scene that kept its own number would show
+  // the aircraft clamped to 8 m while the board's frame said 26.
+  const agl = num(cmd.agl);
+  if (agl >= 0) drone.boardAgl = agl;
 
   const wp = num(cmd.wp);
   // The firmware counts the pad as waypoint 1, this scene's route starts at the
@@ -292,14 +345,19 @@ export function applyBoardCommand(cmd) {
   // both "on patrol" to a viewer, DESCEND is the last leg of a landing, and
   // GROUND / LANDED are two different kinds of not-flying that render the same.
   //
-  // A command the operator issued is honoured by the scene and the board is expected
-  // to catch up. While it has not, the board's mission state is not allowed to
-  // overwrite the aircraft out from under the stick -- the browser has no downlink
-  // into the compiled firmware, so a takeover that stomped every local command would
-  // not be the board flying the ranch, it would be the board refusing to be flown.
-  // The measurements above this point are still taken from the board either way.
+  // A command the operator issued is honoured by the scene while the board catches up
+  // with it. `pilotCommand` now types the verb into the board's console, so the board
+  // does change mode -- but the frame that command was issued from is still in flight,
+  // and taking it as the final word would drop the scene to GROUND the instant the
+  // stick was pushed. Within the window the board's *measurements* above are still
+  // taken; only its mode is held back.
+  drone.boardMode = mode;
   if (!pilotAgrees(mode)) {
-    drone.alert = `板子仍在 ${mode || '未上报'}，本地指令 ${pilot.want} 未被执行`;
+    // Only a request that has run out of time is a fault. While it is still inside the
+    // window, the frame in hand was produced *before* the command was typed into the
+    // board's console -- announcing 未被执行 off that frame made every successful
+    // takeoff lead with a rejection for its first 200 ms.
+    if (pilotExpired()) drone.alert = `板子仍在 ${mode || '未上报'}，本地指令 ${pilot.want} 未被执行`;
     return;
   }
 
@@ -313,9 +371,12 @@ export function applyBoardCommand(cmd) {
   } else if (mode === 'LAND' || mode === 'DESCEND') {
     drone.mode = 'LAND';
   } else if (mode === 'GROUND' || mode === 'LANDED' || mode === 'IDLE') {
-    drone.mode = 'IDLE';
+    // A ground frame from the board ends a local flight only when the operator is not
+    // mid-command. Otherwise the acknowledgement of the takeoff that is still climbing
+    // to us would ground the aircraft that just lifted.
+    if (!pilotPending()) drone.mode = 'IDLE';
   }
-  if (pilot.want && pilotAgrees(mode)) {
+  if (pilot.want && pilotPending() && pilotAgrees(mode)) {
     pilot.acked = true;
     drone.alert = `板子已执行 ${pilot.want}`;
   }
@@ -326,6 +387,7 @@ export function releaseBoardFlight() {
   drone.alert = '';
   pilot.want = '';
   pilot.acked = false;
+  pilot.why = '';
   if (drone.mode === 'IDLE') drone.targetAlt = 0;
 }
 
@@ -341,6 +403,10 @@ function integrate(dt) {
 
 export function updateDrone(dt, time) {
   const d = drone;
+  // Checked here rather than in `applyBoardCommand`: that only runs when a frame
+  // arrives, so a board that goes quiet would leave a pending command looking pending
+  // for ever instead of turning into the fault it is.
+  expirePilot();
 
   if (d.mode === 'IDLE') {
     // "On the ground" has to mean on the ground. The board reports LANDED, and a

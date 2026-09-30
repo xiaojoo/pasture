@@ -91,6 +91,78 @@ export function boardPhase(board) {
   return f ? f.phase : 'idle';
 }
 
+// ---------- the console's other direction: typing at a board ----------
+//
+// Everything else in this file reads the board. This writes to it, through the one
+// port that exists: the simulator's own serial monitor, whose input row is a real
+// line into the emulated UART. It is a *view* being driven -- no simulator internals,
+// no framework hooks -- because the compiled firmware is the only thing that can
+// decide what a command means, and the firmware reads its console.
+//
+// The line ending is forced to newline: `consoleCommandPump` in the firmware frames on
+// '\n', and the panel's own selector defaults to "no line ending", which would leave
+// the verb sitting in the firmware's buffer until the next command arrived.
+const NEWLINE = ['nl', 'both', '换行', '新行'];
+
+function setNativeValue(input, value) {
+  // React holds this input's value in its own state and only updates it through the
+  // setter it installed on the element. Assigning `.value` directly changes the DOM but
+  // leaves React's copy stale, so re-rendering -- which happens on the next keystroke
+  // anywhere in the panel -- would put the old text back. Going through the prototype's
+  // setter and then announcing the change is what a real keystroke does.
+  const proto = Object.getPrototypeOf(input);
+  const desc = Object.getOwnPropertyDescriptor(proto, 'value');
+  if (desc && desc.set) desc.set.call(input, value);
+  else input.value = value;
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+function lineEndingSelect(row) {
+  // Named by its options, not by position: the editor stacks other selects in the same
+  // panel (language, log filter, board kind), and only this one offers "no line ending".
+  return [...row.querySelectorAll('select')].find(s => [...s.options].some(o => o.value === 'none')) || null;
+}
+
+function sendButton(row) {
+  // The editor exposes this slot for its own extensions, which makes it a stabler hook
+  // than the label -- a language the regex has not met would otherwise find no button.
+  return row.querySelector('[data-velxio-slot="serial-actions"] button')
+    || [...row.querySelectorAll('button')].find(b => /^(send|发送)$/i.test((b.textContent || '').trim()))
+    || null;
+}
+
+// Send one command line to a board's console. Returns a refusal reason, or null.
+export function sendSerialCommand(board, line) {
+  if (!board) return '没有指定板子';
+  if (!frames.has(board)) return `仿真器里没有 ${board} 这块板`;
+  if (boardPhase(board) !== 'running') return `${board} 板还没在运行`;
+
+  const doc = simDoc(board);
+  if (!doc) return `${board} 的仿真窗口读不到`;
+
+  const input = [...doc.querySelectorAll('input[type=text]')]
+    .find(i => !/搜索|search/i.test(i.placeholder || '') && !i.disabled);
+  if (!input) return `${board} 的串行输入框没找到`;
+  if (input.disabled) return `${board} 的串行输入框是禁用的（板子没在跑）`;
+
+  const row = input.parentElement;
+  const sel = row && lineEndingSelect(row);
+  const btn = row && sendButton(row);
+  if (!btn) return `${board} 的串行发送按钮没找到`;
+
+  if (sel && !NEWLINE.includes(sel.value)) {
+    sel.value = 'nl';
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+  setNativeValue(input, line);
+  try {
+    btn.click();
+  } catch (e) {
+    return `点发送失败：${e.message}`;
+  }
+  return null;
+}
+
 export function runningBoards() {
   return [...frames.keys()];
 }

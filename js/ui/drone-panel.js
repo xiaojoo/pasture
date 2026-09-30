@@ -122,7 +122,11 @@ function refresh() {
   const link = Math.hypot(drone.pos.x - GROUND_STATION.x, drone.pos.z - GROUND_STATION.z);
 
   put(host.t.mode, drone.mode, null, drone.mode === 'IDLE' ? '' : 'dr-live');
-  put(host.t.alt, drone.pos.y.toFixed(1), 'm');
+  // 高度 is the aircraft's height above the pad in the flying mode. The scene's own
+  // position is a render coordinate with no vertical limit of its own; the board's AGL
+  // is the measurement, so once there is a frame it wins -- the two used to disagree by
+  // whatever the local climb was clamped to.
+  put(host.t.alt, (drone.source === 'board' && drone.boardAgl !== null ? drone.boardAgl : drone.pos.y).toFixed(1), 'm');
   put(host.t.speed, speed.toFixed(1), 'm/s');
   put(host.t.batt, drone.battery.toFixed(0), '%', drone.battery <= 15 ? 'dr-warn' : '');
   put(host.t.link, drone.rssi, `dBm · ${link.toFixed(0)} m`, link > 90 ? 'dr-warn' : '');

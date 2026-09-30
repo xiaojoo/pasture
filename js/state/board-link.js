@@ -1,15 +1,25 @@
 // Applies whatever the boards report to the scene. There is no takeover switch:
 // a board that is running is the authority for its subsystem, and one that is not
 // running is reported as absent rather than quietly replaced by the app.
-import { activePreset, telemetry } from '../ui/esp-panel.js';
+import { activePreset, sendSerialCommand, telemetry } from '../ui/esp-panel.js';
 import { PRESETS } from '../state/firmware.js';
-import { applyBoardCommand, ROUTE, drone } from '../world/drone.js';
+import { applyBoardCommand, ROUTE, drone, setCommandSender } from '../world/drone.js';
 import { applyBoardWater, waterBoardLive } from '../state/water.js';
 import { boardRunning } from '../state/boards.js';
 import { applyPowerFrame, powerGrid, powerStale } from '../state/power.js';
 import { applyFireFrame, fireAlarmCount, fireHealthyLoops, firePanel, fireStale } from '../state/fire.js';
 import { reapplyFeeders } from '../state/time.js';
 import { waterSystem } from '../world/water-tower.js';
+
+// The drone's command writer, installed once at module load. `world/drone.js` decides
+// *what* a verb means and this decides *how* it reaches the board -- the simulator's
+// serial console, typed into -- so the flight state stays free of the UI.
+setCommandSender(cmd => sendSerialCommand('drone', cmd));
+
+// The same writer on the window, so the console can drive a board by hand ("does the
+// firmware answer `arm=1`?") and so the refusal path -- no simulator, board not running
+// -- is testable from the page instead of being described as working.
+window.ranchSend = (board, line) => sendSerialCommand(board, line);
 
 // The five menu subtitles used to be typed HTML that said "3 个预设" and
 // "配电正常 · 12 个设备" forever, whatever was or was not plugged in. They now say

@@ -363,6 +363,41 @@ void loopTask(void*) {
 // to press. Outside the anonymous namespace because the test links against it.
 #if defined(RANCH_SIM)
 void simCommand(const char* cmd) { onGroundCommand(cmd, std::strlen(cmd)); }
+
+// The console's input, as a command door.
+//
+// In the simulation there is no MQTT broker (telemetry.cpp compiles an empty uplink
+// under RANCH_SIM), so the ground command channel that flies this aircraft on the
+// bench does not exist in the browser -- the ranch page can read the console and
+// nothing else. That made the page's "take off" a scene-only animation: the board
+// stayed in GROUND forever and the dashboard, quite correctly, kept saying so.
+//
+// This reads the other direction of the same port the telemetry is printed to. What
+// arrives is exactly what the broker would have delivered: `takeoff`, `land`,
+// `arm=1`, one line each. The parser is deliberately the same `onGroundCommand`, so
+// a verb the bench accepts and a verb the console accepts cannot drift apart.
+//
+// ARDUINO only: the host sandbox drives `simCommand` from its own test, and giving
+// that build a stdin reader would make a unit test wait on a terminal.
+#if defined(ARDUINO)
+void consoleCommandPump() {
+    static char line[64];
+    static size_t n = 0;
+    while (Serial.available() > 0) {
+        const int c = Serial.read();
+        if (c < 0) break;
+        if (c == '\r') continue;                    // CRLF from a terminal
+        if (c == '\n') {
+            line[n] = '\0';
+            if (n) simCommand(line);
+            n = 0;
+            continue;
+        }
+        if (n < sizeof(line) - 1) line[n++] = static_cast<char>(c);
+        else n = 0;   // a line long enough to be nonsense: drop it, keep the port clean
+    }
+}
+#endif
 #endif
 
 void appSetup() {
@@ -409,6 +444,11 @@ void appSetup() {
 
 void appLoop() {
 #if defined(RANCH_SIM)
+    // Commands first, so a line typed into the console is applied on the same tick
+    // its answer is published rather than a scheduler period later.
+#if defined(ARDUINO)
+    consoleCommandPump();
+#endif
     halSimPump();
     runJobs();
     halDelayMs(4);
