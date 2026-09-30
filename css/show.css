@@ -1,0 +1,585 @@
+/* =========================================================
+   DRONE SHOW CHOREOGRAPHY PAGE
+========================================================= */
+
+/* Docked along the bottom, flush with it: the panel is chrome of the same family as the
+   right-hand drawers, so it meets the edge instead of floating a strip of sky under
+   itself. The camera row is the one thing that used to live there, and it is lifted
+   above the panel while it is open rather than buried under it -- an affordance you
+   cannot reach because a panel is on top of it is a dead control. */
+.show-page{
+    position:absolute;
+    z-index:60;
+    left:0;
+    right:0;
+    top:auto;
+    bottom:0;
+    /* As tall as the programme needs and no taller: a fixed 52 vh left ~200 px of
+       the panel's own background between the form columns and the timeline, which is
+       the drawer's emptiness rather than the sky's. The cap keeps a 16-act show inside
+       the frame and lets the panel scroll instead. */
+    height:auto;
+    min-height:320px;
+    max-height:calc(100% - 90px);
+    display:flex;
+    flex-direction:column;
+    gap:12px;
+    padding:14px 18px 16px;
+    background:linear-gradient(180deg,rgba(6,18,12,.97),rgba(4,13,9,.99));
+    border-top:1px solid rgba(255,255,255,.08);
+    box-shadow:0 -24px 60px rgba(0,0,0,.45);
+    color:#dff0e4;
+    overflow:auto;
+}
+
+/* Set by show-page.js to the panel's own height while it is open; 0 when it is not, so
+   the camera row goes back to the bottom edge on its own. */
+.bottom{
+    bottom:calc(22px + var(--show-dock,0px));
+    transition:bottom .18s ease;
+}
+
+/* In the popped-out window the panel *is* the window: the ranch's own chrome belongs to
+   the other one, which is where the fleet is. */
+.show-solo .topbar,
+.show-solo .left-panel,
+.show-solo .time-switch,
+.show-solo .bottom,
+.show-solo .minimap{
+    display:none;
+}
+
+.show-solo .show-page{
+    inset:0;
+    height:auto;
+    max-height:none;
+}
+
+.sp-head-bar{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+}
+
+.sp-head-bar h2{
+    margin:0;
+    font-size:15px;
+    font-weight:700;
+}
+
+.sp-cols{
+    display:grid;
+    /* Three tracks now that the page is as wide as the screen: the 节目单 row -- a
+       shape picker, a colour swatch and four number fields -- needs ~640 px, and at
+       the old 900 px dock it could not have that next to the other two columns, so the
+       verdict column was folded under the parameters. On the bottom dock all three fit
+       side by side and the page is one screen tall instead of two. */
+    grid-template-columns:250px max-content 1fr;
+    gap:14px;
+    align-items:start;
+    flex:1;
+}
+
+.sp-col{
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+    min-width:0;
+}
+
+.sp-col-title{
+    font-size:9px;
+    color:#668073;
+    letter-spacing:.6px;
+}
+
+.sp-field,.sp-mini{
+    display:flex;
+    align-items:center;
+    gap:8px;
+}
+
+.sp-field{
+    justify-content:space-between;
+}
+
+.sp-k,.sp-mini i,.sp-note{
+    color:#7f9a8b;
+    font-size:10.5px;
+    font-style:normal;
+}
+
+.sp-input{
+    padding:5px 8px;
+    border-radius:7px;
+    background:rgba(255,255,255,.05);
+    border:1px solid rgba(255,255,255,.1);
+    color:#eaf7ef;
+    font-size:11.5px;
+    font-variant-numeric:tabular-nums;
+}
+
+.sp-narrow{
+    width:58px;
+}
+
+/* Every number box in the left column is the same width with its value on the same right
+   edge: those fields are a column you read down, and boxes that size themselves to their
+   own content made that column ragged. */
+.sp-field .sp-input{
+    width:86px;
+    text-align:right;
+}
+
+/* The spinner arrows are the operating system's, they appear on some browsers only, and
+    they are 12 px wide on a field that is trying to line up. Typing and the arrow keys
+    still work on the input itself. */
+.sp-input::-webkit-outer-spin-button,
+.sp-input::-webkit-inner-spin-button{
+    -webkit-appearance:none;
+    margin:0;
+}
+
+.sp-input[type=number]{
+    -moz-appearance:textfield;
+    appearance:textfield;
+}
+
+/* The drawn dropdown. It is positioned fixed by show-page.js when it opens, because the
+   panel it lives in scrolls and an absolutely positioned list would be clipped by it. */
+.sp-pick{
+    position:relative;
+    flex:none;
+}
+
+.sp-pick-btn{
+    width:100%;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:8px;
+    padding:5px 8px;
+    border-radius:7px;
+    background:rgba(255,255,255,.05);
+    border:1px solid rgba(255,255,255,.1);
+    color:#eaf7ef;
+    font-size:11.5px;
+    cursor:pointer;
+    text-align:left;
+}
+
+.sp-pick-btn::after{
+    content:"";
+    width:0;
+    height:0;
+    flex:none;
+    border-left:4px solid transparent;
+    border-right:4px solid transparent;
+    border-top:5px solid #7f9a8b;
+}
+
+.sp-pick-list{
+    display:none;
+    z-index:70;
+    padding:4px;
+    border-radius:9px;
+    background:#0b1e14;
+    border:1px solid rgba(255,255,255,.12);
+    box-shadow:0 14px 34px rgba(0,0,0,.5);
+}
+
+.sp-pick.open .sp-pick-list{
+    display:block;
+}
+
+.sp-pick-opt{
+    padding:6px 10px;
+    border-radius:6px;
+    color:#c9dccf;
+    font-size:11.5px;
+    white-space:nowrap;
+    cursor:pointer;
+}
+
+.sp-pick-opt:hover{
+    background:rgba(110,231,160,.12);
+    color:#eaf7ef;
+}
+
+.sp-pick-opt.sel{
+    background:rgba(110,231,160,.2);
+    color:#6ee7a0;
+}
+
+.sp-addrow,
+.sp-tools{
+    display:flex;
+    align-items:center;
+    gap:6px;
+}
+
+.sp-adv{
+    color:#8fd4ff;
+    border-color:rgba(143,212,255,.3);
+    background:rgba(143,212,255,.08);
+}
+
+.sp-grow{
+    flex:1;
+    min-width:0;
+}
+
+.sp-colour{
+    width:26px;
+    height:26px;
+    padding:0;
+    border:1px solid rgba(255,255,255,.14);
+    border-radius:7px;
+    background:transparent;
+    cursor:pointer;
+}
+
+.sp-acts{
+    display:flex;
+    flex-direction:column;
+    gap:6px;
+}
+
+.sp-act{
+    display:flex;
+    align-items:center;
+    gap:7px;
+    padding:7px 9px;
+    border-radius:9px;
+    background:rgba(255,255,255,.035);
+    border:1px solid rgba(255,255,255,.05);
+}
+
+.sp-idx{
+    min-width:16px;
+    color:#668073;
+    font-size:10px;
+    text-align:right;
+}
+
+.sp-ops{
+    display:flex;
+    gap:3px;
+    margin-left:auto;
+}
+
+.sp-btn{
+    padding:5px 10px;
+    border-radius:7px;
+    background:rgba(255,255,255,.05);
+    border:1px solid rgba(255,255,255,.1);
+    color:#eaf7ef;
+    font-size:11px;
+    cursor:pointer;
+}
+
+.sp-btn:hover{
+    background:rgba(110,231,160,.12);
+    border-color:rgba(110,231,160,.4);
+}
+
+.sp-go{
+    background:rgba(110,231,160,.16);
+    border-color:rgba(110,231,160,.45);
+    color:#6ee7a0;
+}
+
+/* Greyed, not hidden -- and a greyed button must not light up under the cursor as if
+   it still worked. */
+.sp-btn:disabled{
+    opacity:.45;
+    cursor:not-allowed;
+}
+
+.sp-btn:disabled:hover{
+    background:rgba(255,255,255,.05);
+    border-color:rgba(255,255,255,.1);
+}
+
+.sp-note.ok{
+    color:#6ee7a0;
+}
+
+.sp-note.bad{
+    color:#ff8b6b;
+}
+
+.sp-add{
+    align-self:flex-start;
+}
+
+.sp-verdict{
+    padding:9px 12px;
+    border-radius:9px;
+    font-size:13px;
+    font-weight:700;
+}
+
+.sp-verdict.ok{
+    background:rgba(110,231,160,.12);
+    border:1px solid rgba(110,231,160,.35);
+    color:#6ee7a0;
+}
+
+.sp-verdict.bad{
+    background:rgba(255,77,77,.1);
+    border:1px solid rgba(255,77,77,.4);
+    color:#ff8b8b;
+}
+
+.sp-reasons{
+    margin:0;
+    padding-left:16px;
+    display:flex;
+    flex-direction:column;
+    gap:4px;
+    font-size:10.5px;
+    color:#a9c0b2;
+}
+
+.sp-reasons .bad{
+    color:#ff8b6b;
+}
+
+.sp-stats{
+    display:grid;
+    /* Three to a row like every other status block in this app: the verdict column
+       is the one that takes the spare width on a bottom dock, and two tracks left the
+       six cards stretched into banners. */
+    grid-template-columns:repeat(3,minmax(0,1fr));
+    gap:6px;
+}
+
+.sp-stat{
+    display:flex;
+    flex-direction:column;
+    gap:2px;
+    padding:8px 10px;
+    border-radius:9px;
+    background:rgba(255,255,255,.035);
+    border:1px solid rgba(255,255,255,.05);
+}
+
+.sp-stat i{
+    font-style:normal;
+    font-size:9px;
+    color:#6a8174;
+}
+
+.sp-stat b{
+    font-size:13px;
+    font-variant-numeric:tabular-nums;
+}
+
+.sp-foot{
+    display:flex;
+    align-items:center;
+    gap:10px;
+}
+
+.sp-scrub{
+    flex:1;
+    min-width:120px;
+    accent-color:#6ee7a0;
+}
+
+/* The timeline is the one part of the page that is a picture rather than a form:
+   the width of each block is the seconds it lasts, so a show that reads as "long
+   hold, short move" is visibly that. */
+.sp-seg{
+    display:flex;
+    height:26px;
+    margin-bottom:4px;
+    border-radius:7px;
+    overflow:hidden;
+}
+
+.sp-seg-move{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    background:repeating-linear-gradient(135deg,rgba(255,255,255,.05) 0 6px,transparent 6px 12px);
+    color:#7f9a8b;
+    font-size:9px;
+    white-space:nowrap;
+}
+
+.sp-seg-hold{
+    opacity:.85;
+}
+
+.sp-head{
+    position:absolute;
+    top:0;
+    bottom:0;
+    width:2px;
+    background:#fff;
+    box-shadow:0 0 6px rgba(255,255,255,.7);
+}
+
+#showTimeline{
+    position:relative;
+}
+
+@media (max-width:1180px){
+    .sp-cols{
+        grid-template-columns:1fr;
+    }
+
+    .sd-body{
+        grid-template-columns:1fr;
+    }
+}
+
+/* =========================================================
+   THE OUTLINE DESIGNER (its own window: /?show=adv)
+========================================================= */
+
+.show-adv .topbar,
+.show-adv .left-panel,
+.show-adv .time-switch,
+.show-adv .bottom,
+.show-adv .minimap{
+    display:none;
+}
+
+.show-design{
+    position:absolute;
+    z-index:70;
+    inset:0;
+    display:flex;
+    flex-direction:column;
+    gap:12px;
+    padding:14px 18px 18px;
+    background:linear-gradient(180deg,rgba(6,18,12,.98),rgba(4,13,9,.99));
+    color:#dff0e4;
+}
+
+.sd-head{
+    display:flex;
+    align-items:baseline;
+    gap:14px;
+}
+
+.sd-head h2{
+    margin:0;
+    font-size:15px;
+    font-weight:700;
+}
+
+.sd-note{
+    color:#7f9a8b;
+    font-size:10.5px;
+}
+
+.sd-body{
+    display:grid;
+    grid-template-columns:250px minmax(0,1fr);
+    gap:14px;
+    flex:1;
+    min-height:0;
+}
+
+.sd-col{
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+}
+
+.sd-field{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:8px;
+}
+
+.sd-field i{
+    font-style:normal;
+    color:#7f9a8b;
+    font-size:10.5px;
+}
+
+/* Same box as the编排 page's number fields: one contract for every number in this app. */
+.sd-input{
+    width:86px;
+    padding:5px 8px;
+    border-radius:7px;
+    background:rgba(255,255,255,.05);
+    border:1px solid rgba(255,255,255,.1);
+    color:#eaf7ef;
+    font-size:11.5px;
+    text-align:right;
+    font-variant-numeric:tabular-nums;
+}
+
+.sd-input::-webkit-outer-spin-button,
+.sd-input::-webkit-inner-spin-button{
+    -webkit-appearance:none;
+    margin:0;
+}
+
+.sd-input[type=number]{
+    -moz-appearance:textfield;
+    appearance:textfield;
+}
+
+.sd-file{
+    display:none;
+}
+
+.sd-drop{
+    padding:18px 12px;
+    border-radius:10px;
+    background:rgba(255,255,255,.035);
+    border:1px dashed rgba(255,255,255,.18);
+    color:#a9c0b2;
+    font-size:11.5px;
+    text-align:center;
+    cursor:pointer;
+}
+
+.sd-drop.hot{
+    background:rgba(110,231,160,.1);
+    border-color:rgba(110,231,160,.45);
+    color:#dff0e4;
+}
+
+.sd-count{
+    color:#6ee7a0;
+    font-size:11px;
+    font-variant-numeric:tabular-nums;
+}
+
+.sd-btn{
+    padding:7px 12px;
+    border-radius:8px;
+    background:rgba(255,255,255,.05);
+    border:1px solid rgba(255,255,255,.1);
+    color:#eaf7ef;
+    font-size:11.5px;
+    cursor:pointer;
+}
+
+.sd-send{
+    background:rgba(110,231,160,.16);
+    border-color:rgba(110,231,160,.45);
+    color:#6ee7a0;
+}
+
+.sd-stage{
+    position:relative;
+    min-height:280px;
+    border-radius:12px;
+    background:radial-gradient(120% 90% at 50% 10%,rgba(14,38,26,.9),rgba(4,12,8,.96));
+    border:1px solid rgba(255,255,255,.07);
+    overflow:hidden;
+}
+
+.sd-stage canvas{
+    display:block;
+}

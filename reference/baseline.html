@@ -1,0 +1,4563 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>智慧牧场 · 3D数字孪生</title>
+
+<style>
+*{
+    box-sizing:border-box;
+}
+
+html,body{
+    margin:0;
+    width:100%;
+    height:100%;
+    overflow:hidden;
+    font-family:
+        Inter,
+        "Microsoft YaHei",
+        "PingFang SC",
+        Arial,
+        sans-serif;
+    background:#07120c;
+    color:#eaf7ef;
+}
+
+button{
+    font-family:inherit;
+}
+
+#app{
+    position:relative;
+    width:100%;
+    height:100%;
+    overflow:hidden;
+}
+
+#scene{
+    position:absolute;
+    inset:0;
+}
+
+/* =========================================================
+   TOP
+========================================================= */
+
+.topbar{
+    position:absolute;
+    z-index:10;
+
+    left:0;
+    right:0;
+    top:0;
+
+    height:82px;
+
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+
+    padding:0 28px;
+
+    pointer-events:none;
+
+    background:
+        linear-gradient(
+            180deg,
+            rgba(5,15,10,.94),
+            rgba(5,15,10,.55),
+            transparent
+        );
+}
+
+.brand{
+    display:flex;
+    align-items:center;
+    gap:12px;
+
+    pointer-events:auto;
+}
+
+.brand-logo{
+    width:42px;
+    height:42px;
+
+    display:flex;
+    align-items:center;
+    justify-content:center;
+
+    border-radius:11px;
+
+    background:
+        linear-gradient(
+            145deg,
+            #1d5b38,
+            #102d1e
+        );
+
+    border:1px solid rgba(120,240,164,.25);
+
+    box-shadow:
+        0 0 25px rgba(55,210,120,.08);
+
+    font-size:22px;
+}
+
+.brand-name{
+    font-size:18px;
+    font-weight:700;
+    letter-spacing:.5px;
+}
+
+.brand-sub{
+    margin-top:3px;
+    font-size:10px;
+    letter-spacing:1.4px;
+    color:#718b7b;
+}
+
+.top-right{
+    display:flex;
+    align-items:center;
+    gap:8px;
+
+    pointer-events:auto;
+}
+
+.status-pill{
+    display:flex;
+    align-items:center;
+    gap:7px;
+
+    height:34px;
+
+    padding:0 12px;
+
+    border-radius:9px;
+
+    background:rgba(8,24,15,.75);
+
+    border:1px solid rgba(255,255,255,.07);
+
+    color:#9fb4a7;
+
+    font-size:11px;
+
+    backdrop-filter:blur(12px);
+}
+
+.status-dot{
+    width:7px;
+    height:7px;
+    border-radius:50%;
+
+    background:#50df91;
+
+    box-shadow:
+        0 0 9px #50df91;
+}
+
+.status-dot.warn{
+    background:#ffc35b;
+    box-shadow:0 0 9px #ffc35b;
+}
+
+/* =========================================================
+   LEFT PANEL
+========================================================= */
+
+.left-panel{
+    position:absolute;
+    z-index:8;
+
+    left:20px;
+    top:104px;
+
+    width:255px;
+
+    display:flex;
+    flex-direction:column;
+    gap:10px;
+}
+
+.panel{
+    border-radius:12px;
+
+    background:
+        linear-gradient(
+            145deg,
+            rgba(9,26,17,.91),
+            rgba(5,16,10,.82)
+        );
+
+    border:1px solid rgba(255,255,255,.075);
+
+    box-shadow:
+        0 20px 50px rgba(0,0,0,.25);
+
+    backdrop-filter:blur(15px);
+}
+
+.overview{
+    padding:16px;
+}
+
+.panel-title{
+    color:#708a7b;
+    font-size:10px;
+    letter-spacing:.5px;
+    margin-bottom:12px;
+}
+
+.area{
+    font-size:28px;
+    line-height:1;
+
+    font-weight:700;
+}
+
+.area small{
+    font-size:11px;
+    color:#718579;
+    font-weight:400;
+}
+
+.overview-grid{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:7px;
+
+    margin-top:15px;
+}
+
+.stat{
+    padding:10px;
+
+    border-radius:8px;
+
+    background:rgba(255,255,255,.035);
+}
+
+.stat-label{
+    font-size:9px;
+    color:#6e8578;
+}
+
+.stat-value{
+    margin-top:5px;
+
+    font-size:14px;
+    font-weight:600;
+}
+
+.green{
+    color:#5ce69b;
+}
+
+.blue{
+    color:#5ec9ff;
+}
+
+.yellow{
+    color:#ffc85d;
+}
+
+.system-list{
+    padding:8px;
+}
+
+.system-btn{
+    width:100%;
+
+    border:0;
+    background:transparent;
+
+    display:flex;
+    align-items:center;
+
+    padding:10px;
+
+    border-radius:9px;
+
+    color:#d5e4dc;
+
+    text-align:left;
+
+    cursor:pointer;
+
+    transition:.2s;
+}
+
+.system-btn:hover{
+    background:rgba(255,255,255,.055);
+}
+
+.system-icon{
+    width:34px;
+    height:34px;
+
+    display:flex;
+    align-items:center;
+    justify-content:center;
+
+    margin-right:10px;
+
+    border-radius:8px;
+
+    background:rgba(255,255,255,.05);
+
+    font-size:16px;
+}
+
+.system-main{
+    flex:1;
+}
+
+.system-name{
+    font-size:11px;
+    font-weight:600;
+}
+
+.system-state{
+    margin-top:3px;
+
+    font-size:9px;
+    color:#668073;
+}
+
+.system-arrow{
+    color:#587263;
+    font-size:18px;
+}
+
+/* =========================================================
+   DAY NIGHT
+========================================================= */
+
+.time-switch{
+    position:absolute;
+    z-index:10;
+
+    right:22px;
+    top:100px;
+
+    padding:4px;
+
+    display:flex;
+
+    border-radius:10px;
+
+    background:rgba(5,17,11,.78);
+
+    border:1px solid rgba(255,255,255,.08);
+
+    backdrop-filter:blur(12px);
+}
+
+.time-btn{
+    border:0;
+
+    padding:8px 12px;
+
+    border-radius:7px;
+
+    color:#71877b;
+
+    background:transparent;
+
+    font-size:10px;
+
+    cursor:pointer;
+}
+
+.time-btn.active{
+    color:#e6fff0;
+
+    background:#225337;
+}
+
+/* =========================================================
+   RIGHT DRAWER
+========================================================= */
+
+.drawer{
+    position:absolute;
+    z-index:30;
+
+    right:0;
+    top:0;
+
+    width:405px;
+    height:100%;
+
+    display:flex;
+    flex-direction:column;
+
+    background:
+        linear-gradient(
+            180deg,
+            rgba(8,23,15,.98),
+            rgba(4,13,9,.99)
+        );
+
+    border-left:1px solid rgba(255,255,255,.08);
+
+    box-shadow:
+        -30px 0 80px rgba(0,0,0,.4);
+
+    transform:translateX(100%);
+
+    transition:
+        transform .3s cubic-bezier(.2,.8,.2,1);
+}
+
+.drawer.open{
+    transform:translateX(0);
+}
+
+.drawer-head{
+    height:80px;
+
+    flex-shrink:0;
+
+    padding:0 20px;
+
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+
+    border-bottom:1px solid rgba(255,255,255,.07);
+}
+
+.drawer-title{
+    font-size:15px;
+    font-weight:700;
+}
+
+.drawer-subtitle{
+    margin-top:4px;
+
+    color:#61796b;
+
+    font-size:9px;
+    letter-spacing:1px;
+}
+
+.close{
+    width:32px;
+    height:32px;
+
+    border:0;
+
+    border-radius:8px;
+
+    background:rgba(255,255,255,.05);
+
+    color:#82958a;
+
+    cursor:pointer;
+
+    font-size:18px;
+}
+
+.drawer-body{
+    flex:1;
+
+    overflow:auto;
+
+    padding:18px;
+}
+
+.section{
+    margin-bottom:21px;
+}
+
+.section-label{
+    margin-bottom:9px;
+
+    font-size:9px;
+    color:#668073;
+    letter-spacing:.6px;
+}
+
+.data-grid{
+    display:grid;
+
+    grid-template-columns:
+        1fr 1fr;
+
+    gap:8px;
+}
+
+.data-card{
+    padding:13px;
+
+    border-radius:9px;
+
+    background:rgba(255,255,255,.035);
+
+    border:1px solid rgba(255,255,255,.035);
+}
+
+.data-label{
+    color:#6a8174;
+    font-size:9px;
+}
+
+.data-value{
+    margin-top:7px;
+
+    font-size:18px;
+
+    font-weight:700;
+}
+
+.data-value small{
+    margin-left:2px;
+
+    font-size:9px;
+
+    color:#6f8779;
+
+    font-weight:400;
+}
+
+/* =========================================================
+   DEVICE
+========================================================= */
+
+.device{
+    display:flex;
+    align-items:center;
+
+    min-height:57px;
+
+    margin-bottom:7px;
+
+    padding:10px;
+
+    border-radius:9px;
+
+    background:rgba(255,255,255,.035);
+
+    border:1px solid rgba(255,255,255,.025);
+}
+
+.device-icon{
+    width:34px;
+    height:34px;
+
+    flex-shrink:0;
+
+    display:flex;
+    align-items:center;
+    justify-content:center;
+
+    margin-right:10px;
+
+    border-radius:8px;
+
+    background:rgba(255,255,255,.05);
+}
+
+.device-info{
+    flex:1;
+}
+
+.device-name{
+    font-size:10px;
+    font-weight:600;
+}
+
+.device-desc{
+    margin-top:4px;
+
+    color:#62796d;
+
+    font-size:8px;
+}
+
+.device-status{
+    margin-right:10px;
+
+    color:#58df96;
+
+    font-size:9px;
+}
+
+.device-status.warning{
+    color:#ffc45d;
+}
+
+.switch{
+    position:relative;
+
+    width:35px;
+    height:19px;
+
+    border-radius:20px;
+
+    background:#27332c;
+
+    cursor:pointer;
+}
+
+.switch::after{
+    content:"";
+
+    position:absolute;
+
+    top:3px;
+    left:3px;
+
+    width:13px;
+    height:13px;
+
+    border-radius:50%;
+
+    background:#75877e;
+
+    transition:.2s;
+}
+
+.switch.on{
+    background:#246e43;
+}
+
+.switch.on::after{
+    left:19px;
+
+    background:#d4ffe2;
+}
+
+/* =========================================================
+   BOTTOM
+========================================================= */
+
+.bottom{
+    position:absolute;
+
+    z-index:10;
+
+    bottom:22px;
+    left:50%;
+
+    transform:translateX(-50%);
+
+    display:flex;
+
+    gap:4px;
+
+    padding:5px;
+
+    border-radius:10px;
+
+    background:rgba(5,17,11,.82);
+
+    border:1px solid rgba(255,255,255,.08);
+
+    backdrop-filter:blur(14px);
+}
+
+.bottom-btn{
+    border:0;
+
+    padding:9px 12px;
+
+    border-radius:7px;
+
+    background:transparent;
+
+    color:#84998d;
+
+    font-size:10px;
+
+    cursor:pointer;
+}
+
+.bottom-btn:hover{
+    color:#e8fff0;
+    background:rgba(255,255,255,.055);
+}
+
+/* =========================================================
+   BUILDING INFO
+========================================================= */
+
+.building-info{
+    position:absolute;
+
+    z-index:12;
+
+    left:50%;
+    bottom:75px;
+
+    transform:
+        translate(-50%,10px);
+
+    padding:10px 14px;
+
+    display:flex;
+    align-items:center;
+    gap:12px;
+
+    border-radius:9px;
+
+    background:rgba(5,18,11,.9);
+
+    border:1px solid rgba(110,230,157,.15);
+
+    opacity:0;
+
+    pointer-events:none;
+
+    transition:.25s;
+
+    backdrop-filter:blur(12px);
+}
+
+.building-info.show{
+    opacity:1;
+
+    transform:
+        translate(-50%,0);
+}
+
+.building-info-name{
+    font-size:11px;
+    font-weight:600;
+}
+
+.building-info-desc{
+    color:#6f8779;
+    font-size:9px;
+    margin-top:3px;
+}
+
+.building-info-open{
+    padding:6px 9px;
+
+    border:0;
+
+    border-radius:6px;
+
+    color:#dfffea;
+
+    background:#1c5735;
+
+    cursor:pointer;
+
+    font-size:9px;
+}
+
+/* =========================================================
+   TOAST
+========================================================= */
+
+.toast{
+    position:absolute;
+
+    z-index:100;
+
+    left:50%;
+    top:90px;
+
+    transform:
+        translate(-50%,-10px);
+
+    padding:9px 14px;
+
+    border-radius:8px;
+
+    background:rgba(7,21,13,.94);
+
+    border:1px solid rgba(100,225,150,.16);
+
+    color:#bde9cc;
+
+    font-size:10px;
+
+    opacity:0;
+
+    pointer-events:none;
+
+    transition:.25s;
+}
+
+.toast.show{
+    opacity:1;
+
+    transform:
+        translate(-50%,0);
+}
+
+/* =========================================================
+   MINI MAP
+========================================================= */
+
+.minimap{
+    position:absolute;
+
+    right:20px;
+    bottom:22px;
+
+    z-index:9;
+
+    width:170px;
+    height:120px;
+
+    padding:9px;
+
+    border-radius:10px;
+
+    background:rgba(5,17,11,.78);
+
+    border:1px solid rgba(255,255,255,.08);
+
+    backdrop-filter:blur(12px);
+}
+
+.minimap-title{
+    font-size:8px;
+    color:#6f8779;
+
+    margin-bottom:6px;
+}
+
+.map{
+    position:relative;
+
+    width:100%;
+    height:86px;
+
+    overflow:hidden;
+
+    border-radius:6px;
+
+    background:#183221;
+}
+
+.map-road-h{
+    position:absolute;
+
+    left:0;
+    top:48%;
+
+    width:100%;
+    height:12px;
+
+    background:#4b554d;
+}
+
+.map-road-v{
+    position:absolute;
+
+    left:48%;
+    top:0;
+
+    width:12px;
+    height:100%;
+
+    background:#4b554d;
+}
+
+.map-building{
+    position:absolute;
+
+    width:22px;
+    height:15px;
+
+    border-radius:2px;
+
+    background:#a77b57;
+}
+
+.map-building.a{
+    left:28%;
+    top:23%;
+}
+
+.map-building.b{
+    left:67%;
+    top:28%;
+}
+
+.map-building.c{
+    left:68%;
+    top:67%;
+}
+
+.map-water{
+    position:absolute;
+
+    width:9px;
+    height:9px;
+
+    border-radius:50%;
+
+    background:#43b9e8;
+
+    left:82%;
+    top:13%;
+}
+
+.map-player{
+    position:absolute;
+
+    width:6px;
+    height:6px;
+
+    border-radius:50%;
+
+    background:#62e49b;
+
+    box-shadow:0 0 7px #62e49b;
+
+    left:48%;
+    top:48%;
+}
+
+/* =========================================================
+   MOBILE
+========================================================= */
+
+@media(max-width:900px){
+
+    .left-panel{
+        width:205px;
+        left:10px;
+    }
+
+    .top-right .status-pill:nth-child(n+2){
+        display:none;
+    }
+
+    .minimap{
+        display:none;
+    }
+
+    .drawer{
+        width:100%;
+    }
+
+}
+
+@media(max-width:650px){
+
+    .left-panel{
+        transform:scale(.9);
+        transform-origin:top left;
+    }
+
+    .brand-sub{
+        display:none;
+    }
+
+    .bottom-btn:nth-child(3),
+    .bottom-btn:nth-child(4){
+        display:none;
+    }
+}
+</style>
+</head>
+
+<body>
+
+<div id="app">
+
+<div id="scene"></div>
+
+<!-- ======================================================
+     TOP
+====================================================== -->
+
+<div class="topbar">
+
+    <div class="brand">
+
+        <div class="brand-logo">
+            🌿
+        </div>
+
+        <div>
+            <div class="brand-name">
+                智慧牧场 · 3D数字孪生
+            </div>
+
+            <div class="brand-sub">
+                SMART RANCH DIGITAL TWIN
+            </div>
+        </div>
+
+    </div>
+
+
+    <div class="top-right">
+
+        <div class="status-pill">
+            <span class="status-dot"></span>
+            系统正常
+        </div>
+
+        <div class="status-pill">
+            ⚡ 126.8 kW
+        </div>
+
+        <div class="status-pill">
+            💧 72%
+        </div>
+
+        <div class="status-pill">
+            2026 / 09 / 28&nbsp;&nbsp;23:04
+        </div>
+
+    </div>
+
+</div>
+
+
+<!-- ======================================================
+     LEFT
+====================================================== -->
+
+<div class="left-panel">
+
+    <div class="panel overview">
+
+        <div class="panel-title">
+            牧场实时概览
+        </div>
+
+        <div class="area">
+            98.6
+            <small>亩</small>
+        </div>
+
+        <div class="overview-grid">
+
+            <div class="stat">
+                <div class="stat-label">
+                    牲畜数量
+                </div>
+
+                <div class="stat-value green">
+                    286
+                </div>
+            </div>
+
+            <div class="stat">
+                <div class="stat-label">
+                    在线设备
+                </div>
+
+                <div class="stat-value blue">
+                    48 / 51
+                </div>
+            </div>
+
+            <div class="stat">
+                <div class="stat-label">
+                    今日用水
+                </div>
+
+                <div class="stat-value blue">
+                    18.6 m³
+                </div>
+            </div>
+
+            <div class="stat">
+                <div class="stat-label">
+                    今日用电
+                </div>
+
+                <div class="stat-value yellow">
+                    684 kWh
+                </div>
+            </div>
+
+        </div>
+
+    </div>
+
+
+    <div class="panel system-list">
+
+        <button
+            class="system-btn"
+            onclick="openDrawer('power')">
+
+            <div class="system-icon">
+                ⚡
+            </div>
+
+            <div class="system-main">
+
+                <div class="system-name">
+                    电路系统
+                </div>
+
+                <div class="system-state">
+                    配电正常 · 12 个设备
+                </div>
+
+            </div>
+
+            <div class="system-arrow">
+                ›
+            </div>
+
+        </button>
+
+
+        <button
+            class="system-btn"
+            onclick="openDrawer('water')">
+
+            <div class="system-icon">
+                💧
+            </div>
+
+            <div class="system-main">
+
+                <div class="system-name">
+                    水利系统
+                </div>
+
+                <div class="system-state">
+                    水压 0.42 MPa · 正常
+                </div>
+
+            </div>
+
+            <div class="system-arrow">
+                ›
+            </div>
+
+        </button>
+
+
+        <button
+            class="system-btn"
+            onclick="openDrawer('fire')">
+
+            <div class="system-icon">
+                🔥
+            </div>
+
+            <div class="system-main">
+
+                <div class="system-name">
+                    消防系统
+                </div>
+
+                <div class="system-state">
+                    消防水池 · 86%
+                </div>
+
+            </div>
+
+            <div class="system-arrow">
+                ›
+            </div>
+
+        </button>
+
+    </div>
+
+</div>
+
+
+<!-- ======================================================
+     DAY NIGHT
+====================================================== -->
+
+<div class="time-switch">
+
+    <button
+        class="time-btn"
+        id="dayBtn"
+        onclick="setTimeMode('day')">
+        ☀ 白天
+    </button>
+
+    <button
+        class="time-btn active"
+        id="nightBtn"
+        onclick="setTimeMode('night')">
+        ☾ 夜晚
+    </button>
+
+</div>
+
+
+<!-- ======================================================
+     BUILDING INFO
+====================================================== -->
+
+<div
+    class="building-info"
+    id="buildingInfo">
+
+    <div>
+
+        <div
+            class="building-info-name"
+            id="buildingName">
+            牧场主屋
+        </div>
+
+        <div
+            class="building-info-desc"
+            id="buildingDesc">
+            点击查看建筑设备
+        </div>
+
+    </div>
+
+    <button
+        class="building-info-open"
+        onclick="openSelectedBuilding()">
+        查看
+    </button>
+
+</div>
+
+
+<!-- ======================================================
+     BOTTOM
+====================================================== -->
+
+<div class="bottom">
+
+    <button
+        class="bottom-btn"
+        onclick="resetCamera()">
+        ⌖ 总览
+    </button>
+
+    <button
+        class="bottom-btn"
+        onclick="focusBuilding('house')">
+        🏠 主屋
+    </button>
+
+    <button
+        class="bottom-btn"
+        onclick="focusBuilding('barn')">
+        🐄 牛舍
+    </button>
+
+    <button
+        class="bottom-btn"
+        onclick="toggleStreetLights()">
+        💡 路灯
+    </button>
+
+    <button
+        class="bottom-btn"
+        onclick="toggleHouseLights()">
+        🏠 室内灯
+    </button>
+
+</div>
+
+
+<!-- ======================================================
+     MINI MAP
+====================================================== -->
+
+<div class="minimap">
+
+    <div class="minimap-title">
+        RANCH MAP
+    </div>
+
+    <div class="map">
+
+        <div class="map-road-h"></div>
+        <div class="map-road-v"></div>
+
+        <div class="map-building a"></div>
+        <div class="map-building b"></div>
+        <div class="map-building c"></div>
+
+        <div class="map-water"></div>
+
+        <div class="map-player"></div>
+
+    </div>
+
+</div>
+
+
+<!-- ======================================================
+     DRAWER
+====================================================== -->
+
+<div
+    class="drawer"
+    id="drawer">
+
+    <div class="drawer-head">
+
+        <div>
+
+            <div
+                class="drawer-title"
+                id="drawerTitle">
+                ⚡ 电路系统
+            </div>
+
+            <div
+                class="drawer-subtitle"
+                id="drawerSubtitle">
+                POWER MANAGEMENT
+            </div>
+
+        </div>
+
+        <button
+            class="close"
+            onclick="closeDrawer()">
+            ×
+        </button>
+
+    </div>
+
+
+    <div
+        class="drawer-body"
+        id="drawerBody">
+    </div>
+
+</div>
+
+
+<div
+    class="toast"
+    id="toast">
+</div>
+
+</div>
+
+
+<script type="importmap">
+{"imports":{"three":"/vendor/three.module.js","three/addons/":"/vendor/addons/"}}
+</script>
+<script type="module">
+
+import * as THREE from
+"/vendor/three.module.js";
+
+import { OrbitControls } from
+"/vendor/addons/controls/OrbitControls.js";
+
+
+/* =========================================================
+   THREE
+========================================================= */
+
+const container =
+document.getElementById("scene");
+
+const scene =
+new THREE.Scene();
+
+scene.background =
+new THREE.Color(0x07140c);
+
+scene.fog =
+new THREE.Fog(
+    0x07140c,
+    70,
+    180
+);
+
+
+const camera =
+new THREE.PerspectiveCamera(
+    55,
+    innerWidth / innerHeight,
+    .1,
+    500
+);
+
+camera.position.set(
+    65,
+    48,
+    65
+);
+
+
+const renderer =
+new THREE.WebGLRenderer({
+    antialias:true
+});
+
+renderer.setPixelRatio(
+    Math.min(
+        devicePixelRatio,
+        2
+    )
+);
+
+renderer.setSize(
+    innerWidth,
+    innerHeight
+);
+
+renderer.shadowMap.enabled =
+true;
+
+renderer.shadowMap.type =
+THREE.PCFSoftShadowMap;
+
+renderer.outputColorSpace =
+THREE.SRGBColorSpace;
+
+container.appendChild(
+    renderer.domElement
+);
+
+
+/* =========================================================
+   CAMERA
+========================================================= */
+
+const controls =
+new OrbitControls(
+    camera,
+    renderer.domElement
+);
+
+controls.enableDamping =
+true;
+
+controls.dampingFactor =
+.06;
+
+controls.minDistance =
+18;
+
+controls.maxDistance =
+150;
+
+controls.maxPolarAngle =
+Math.PI * .48;
+
+controls.target.set(
+    0,
+    0,
+    0
+);
+
+
+/* =========================================================
+   LIGHTING
+========================================================= */
+
+const ambient =
+new THREE.HemisphereLight(
+    0xb7d7c0,
+    0x15251a,
+    .7
+);
+
+scene.add(
+    ambient
+);
+
+
+const sun =
+new THREE.DirectionalLight(
+    0xfff1d2,
+    2.5
+);
+
+sun.position.set(
+    50,
+    90,
+    40
+);
+
+sun.castShadow =
+true;
+
+sun.shadow.mapSize.width =
+2048;
+
+sun.shadow.mapSize.height =
+2048;
+
+sun.shadow.camera.left =
+-100;
+
+sun.shadow.camera.right =
+100;
+
+sun.shadow.camera.top =
+100;
+
+sun.shadow.camera.bottom =
+-100;
+
+scene.add(
+    sun
+);
+
+
+/* =========================================================
+   GROUND
+========================================================= */
+
+const ground =
+new THREE.Mesh(
+
+    new THREE.PlaneGeometry(
+        180,
+        180
+    ),
+
+    new THREE.MeshStandardMaterial({
+        color:0x41663c,
+        roughness:1
+    })
+
+);
+
+ground.rotation.x =
+-Math.PI / 2;
+
+ground.receiveShadow =
+true;
+
+scene.add(
+    ground
+);
+
+
+/* =========================================================
+   GRID
+========================================================= */
+
+const grid =
+new THREE.GridHelper(
+    170,
+    34,
+    0x61805e,
+    0x41623f
+);
+
+grid.position.y =
+.025;
+
+grid.material.transparent =
+true;
+
+grid.material.opacity =
+.13;
+
+scene.add(
+    grid
+);
+
+
+/* =========================================================
+   ROAD
+========================================================= */
+
+function createRoad(
+    x,
+    z,
+    width,
+    length,
+    rotation=0
+){
+
+    const road =
+    new THREE.Mesh(
+
+        new THREE.PlaneGeometry(
+            width,
+            length
+        ),
+
+        new THREE.MeshStandardMaterial({
+            color:0x5b5d55,
+            roughness:1
+        })
+
+    );
+
+    road.rotation.x =
+    -Math.PI / 2;
+
+    road.rotation.z =
+    rotation;
+
+    road.position.set(
+        x,
+        .04,
+        z
+    );
+
+    road.receiveShadow =
+    true;
+
+    scene.add(
+        road
+    );
+}
+
+
+/* 主干道 */
+
+createRoad(
+    0,
+    0,
+    9,
+    150
+);
+
+
+/* 横向道路 */
+
+createRoad(
+    0,
+    -5,
+    135,
+    8
+);
+
+
+/* 支路 */
+
+createRoad(
+    -29,
+    -31,
+    7,
+    55,
+    Math.PI / 2
+);
+
+createRoad(
+    30,
+    27,
+    7,
+    55,
+    Math.PI / 2
+);
+
+
+/* =========================================================
+   BUILDING MATERIALS
+========================================================= */
+
+const wallMat =
+new THREE.MeshStandardMaterial({
+    color:0xc6aa82,
+    roughness:.9
+});
+
+const roofMat =
+new THREE.MeshStandardMaterial({
+    color:0x4b352b,
+    roughness:.85
+});
+
+const woodMat =
+new THREE.MeshStandardMaterial({
+    color:0x774a32,
+    roughness:.9
+});
+
+const metalMat =
+new THREE.MeshStandardMaterial({
+    color:0x59636a,
+    metalness:.65,
+    roughness:.4
+});
+
+
+/* =========================================================
+   HOUSE
+========================================================= */
+
+const buildings = {};
+
+function createHouse(){
+
+    const group =
+    new THREE.Group();
+
+    group.position.set(
+        -20,
+        0,
+        -17
+    );
+
+    group.userData.type =
+    "house";
+
+
+    /* 房体 */
+
+    const body =
+    new THREE.Mesh(
+
+        new THREE.BoxGeometry(
+            23,
+            7,
+            16
+        ),
+
+        wallMat
+    );
+
+    body.position.y =
+    3.5;
+
+    body.castShadow =
+    true;
+
+    body.receiveShadow =
+    true;
+
+    body.userData.building =
+    "house";
+
+    group.add(
+        body
+    );
+
+
+    /* 屋顶 */
+
+    const roof =
+    new THREE.Mesh(
+
+        new THREE.ConeGeometry(
+            15,
+            5,
+            4
+        ),
+
+        roofMat
+    );
+
+    roof.rotation.y =
+    Math.PI / 4;
+
+    roof.position.y =
+    9;
+
+    roof.castShadow =
+    true;
+
+    roof.userData.building =
+    "house";
+
+    group.add(
+        roof
+    );
+
+
+    /* 门 */
+
+    const door =
+    new THREE.Mesh(
+
+        new THREE.BoxGeometry(
+            3,
+            4.4,
+            .25
+        ),
+
+        new THREE.MeshStandardMaterial({
+            color:0x573823
+        })
+
+    );
+
+    door.position.set(
+        0,
+        2.2,
+        8.1
+    );
+
+    group.add(
+        door
+    );
+
+
+    /* 窗户 */
+
+    const windowMat =
+    new THREE.MeshStandardMaterial({
+
+        color:0xffd98a,
+
+        emissive:0xffaa32,
+
+        emissiveIntensity:1.7
+
+    });
+
+
+    const windows =
+    [];
+
+
+    for(
+        let x=-7;
+        x<=7;
+        x+=7
+    ){
+
+        const window =
+        new THREE.Mesh(
+
+            new THREE.BoxGeometry(
+                3.5,
+                2.5,
+                .18
+            ),
+
+            windowMat.clone()
+        );
+
+        window.position.set(
+            x,
+            4.3,
+            8.15
+        );
+
+        group.add(
+            window
+        );
+
+        windows.push(
+            window
+        );
+
+    }
+
+
+    /* 烟囱 */
+
+    const chimney =
+    new THREE.Mesh(
+
+        new THREE.BoxGeometry(
+            1.6,
+            4,
+            1.6
+        ),
+
+        new THREE.MeshStandardMaterial({
+            color:0x66534a
+        })
+
+    );
+
+    chimney.position.set(
+        5,
+        10,
+        -2
+    );
+
+    chimney.castShadow =
+    true;
+
+    group.add(
+        chimney
+    );
+
+
+    scene.add(
+        group
+    );
+
+    buildings.house = {
+        group,
+        windows
+    };
+
+    return group;
+}
+
+createHouse();
+
+
+/* =========================================================
+   BARN
+========================================================= */
+
+function createBarn(){
+
+    const group =
+    new THREE.Group();
+
+    group.position.set(
+        25,
+        0,
+        -25
+    );
+
+    group.userData.type =
+    "barn";
+
+
+    const body =
+    new THREE.Mesh(
+
+        new THREE.BoxGeometry(
+            25,
+            9,
+            17
+        ),
+
+        woodMat
+    );
+
+    body.position.y =
+    4.5;
+
+    body.castShadow =
+    true;
+
+    body.receiveShadow =
+    true;
+
+    body.userData.building =
+    "barn";
+
+    group.add(
+        body
+    );
+
+
+    const roof =
+    new THREE.Mesh(
+
+        new THREE.ConeGeometry(
+            17,
+            6,
+            4
+        ),
+
+        roofMat
+    );
+
+    roof.rotation.y =
+    Math.PI / 4;
+
+    roof.position.y =
+    11;
+
+    roof.castShadow =
+    true;
+
+    group.add(
+        roof
+    );
+
+
+    /* 牛舍大门 */
+
+    const door =
+    new THREE.Mesh(
+
+        new THREE.BoxGeometry(
+            7,
+            6,
+            .25
+        ),
+
+        new THREE.MeshStandardMaterial({
+            color:0x38291f
+        })
+
+    );
+
+    door.position.set(
+        0,
+        3,
+        8.65
+    );
+
+    group.add(
+        door
+    );
+
+
+    /* 通风窗 */
+
+    for(
+        let x=-8;
+        x<=8;
+        x+=8
+    ){
+
+        const w =
+        new THREE.Mesh(
+
+            new THREE.BoxGeometry(
+                3,
+                1.5,
+                .18
+            ),
+
+            new THREE.MeshStandardMaterial({
+                color:0x7f9b94,
+                metalness:.3
+            })
+
+        );
+
+        w.position.set(
+            x,
+            5.5,
+            8.7
+        );
+
+        group.add(
+            w
+        );
+
+    }
+
+
+    scene.add(
+        group
+    );
+
+    buildings.barn =
+    {
+        group
+    };
+
+    return group;
+}
+
+createBarn();
+
+
+/* =========================================================
+   FEED STORAGE
+========================================================= */
+
+function createWarehouse(){
+
+    const group =
+    new THREE.Group();
+
+    group.position.set(
+        26,
+        0,
+        18
+    );
+
+    group.userData.type =
+    "warehouse";
+
+
+    const body =
+    new THREE.Mesh(
+
+        new THREE.BoxGeometry(
+            18,
+            7,
+            13
+        ),
+
+        new THREE.MeshStandardMaterial({
+            color:0x9a8569,
+            roughness:.9
+        })
+
+    );
+
+    body.position.y =
+    3.5;
+
+    body.castShadow =
+    true;
+
+    group.add(
+        body
+    );
+
+
+    const roof =
+    new THREE.Mesh(
+
+        new THREE.BoxGeometry(
+            19,
+            .6,
+            14
+        ),
+
+        roofMat
+    );
+
+    roof.position.y =
+    7.2;
+
+    roof.rotation.z =
+    .025;
+
+    group.add(
+        roof
+    );
+
+
+    /* 门 */
+
+    const door =
+    new THREE.Mesh(
+
+        new THREE.BoxGeometry(
+            5,
+            4,
+            .2
+        ),
+
+        new THREE.MeshStandardMaterial({
+            color:0x4d3829
+        })
+
+    );
+
+    door.position.set(
+        0,
+        2,
+        6.6
+    );
+
+    group.add(
+        door
+    );
+
+
+    scene.add(
+        group
+    );
+
+    buildings.warehouse =
+    {
+        group
+    };
+}
+
+createWarehouse();
+
+
+/* =========================================================
+   MACHINE SHED
+========================================================= */
+
+function createMachineShed(){
+
+    const group =
+    new THREE.Group();
+
+    group.position.set(
+        -28,
+        0,
+        23
+    );
+
+    group.userData.type =
+    "machine";
+
+
+    const body =
+    new THREE.Mesh(
+
+        new THREE.BoxGeometry(
+            20,
+            6,
+            13
+        ),
+
+        metalMat
+    );
+
+    body.position.y =
+    3;
+
+    body.castShadow =
+    true;
+
+    group.add(
+        body
+    );
+
+
+    const roof =
+    new THREE.Mesh(
+
+        new THREE.BoxGeometry(
+            21,
+            .5,
+            14
+        ),
+
+        new THREE.MeshStandardMaterial({
+            color:0x404b4e,
+            metalness:.5
+        })
+
+    );
+
+    roof.position.y =
+    6.3;
+
+    group.add(
+        roof
+    );
+
+
+    const door =
+    new THREE.Mesh(
+
+        new THREE.BoxGeometry(
+            7,
+            4.5,
+            .2
+        ),
+
+        new THREE.MeshStandardMaterial({
+            color:0x252e2f
+        })
+
+    );
+
+    door.position.set(
+        0,
+        2.25,
+        6.6
+    );
+
+    group.add(
+        door
+    );
+
+
+    scene.add(
+        group
+    );
+
+    buildings.machine =
+    {
+        group
+    };
+}
+
+createMachineShed();
+
+
+/* =========================================================
+   PUMP HOUSE
+========================================================= */
+
+function createPumpHouse(){
+
+    const group =
+    new THREE.Group();
+
+    group.position.set(
+        43,
+        0,
+        5
+    );
+
+    const body =
+    new THREE.Mesh(
+
+        new THREE.BoxGeometry(
+            10,
+            5,
+            8
+        ),
+
+        new THREE.MeshStandardMaterial({
+            color:0x789184,
+            roughness:.9
+        })
+
+    );
+
+    body.position.y =
+    2.5;
+
+    body.castShadow =
+    true;
+
+    group.add(
+        body
+    );
+
+
+    const roof =
+    new THREE.Mesh(
+
+        new THREE.BoxGeometry(
+            11,
+            .5,
+            9
+        ),
+
+        roofMat
+    );
+
+    roof.position.y =
+    5.3;
+
+    group.add(
+        roof
+    );
+
+
+    scene.add(
+        group
+    );
+
+    buildings.pump =
+    {
+        group
+    };
+}
+
+createPumpHouse();
+
+
+/* =========================================================
+   POWER ROOM
+========================================================= */
+
+function createPowerHouse(){
+
+    const group =
+    new THREE.Group();
+
+    group.position.set(
+        -42,
+        0,
+        -2
+    );
+
+
+    const body =
+    new THREE.Mesh(
+
+        new THREE.BoxGeometry(
+            9,
+            5,
+            8
+        ),
+
+        new THREE.MeshStandardMaterial({
+            color:0x626a6d,
+            metalness:.5,
+            roughness:.6
+        })
+
+    );
+
+    body.position.y =
+    2.5;
+
+    body.castShadow =
+    true;
+
+    group.add(
+        body
+    );
+
+
+    const roof =
+    new THREE.Mesh(
+
+        new THREE.BoxGeometry(
+            10,
+            .5,
+            9
+        ),
+
+        new THREE.MeshStandardMaterial({
+            color:0x394245
+        })
+
+    );
+
+    roof.position.y =
+    5.3;
+
+    group.add(
+        roof
+    );
+
+
+    /* 黄色警示标志 */
+
+    const warning =
+    new THREE.Mesh(
+
+        new THREE.BoxGeometry(
+            1.6,
+            1.6,
+            .12
+        ),
+
+        new THREE.MeshStandardMaterial({
+            color:0xffc928,
+            emissive:0x6d4c00,
+            emissiveIntensity:.5
+        })
+
+    );
+
+    warning.position.set(
+        0,
+        3,
+        4.1
+    );
+
+    group.add(
+        warning
+    );
+
+
+    scene.add(
+        group
+    );
+
+    buildings.power =
+    {
+        group
+    };
+}
+
+createPowerHouse();
+
+
+/* =========================================================
+   WATER TOWER
+========================================================= */
+
+const waterSystem =
+{
+    pumpOn:true,
+    valveOn:true,
+    pressure:.42,
+    level:72
+};
+
+
+const waterTower =
+new THREE.Group();
+
+waterTower.position.set(
+    45,
+    0,
+    25
+);
+
+
+const towerLegMaterial =
+new THREE.MeshStandardMaterial({
+    color:0x515e62,
+    metalness:.7,
+    roughness:.35
+});
+
+
+for(
+    let i=0;
+    i<4;
+    i++
+){
+
+    const a =
+    Math.PI / 4 +
+    i * Math.PI / 2;
+
+    const leg =
+    new THREE.Mesh(
+
+        new THREE.CylinderGeometry(
+            .18,
+            .22,
+            8,
+            10
+        ),
+
+        towerLegMaterial
+    );
+
+    leg.position.set(
+        Math.cos(a)*3,
+        4,
+        Math.sin(a)*3
+    );
+
+    leg.castShadow =
+    true;
+
+    waterTower.add(
+        leg
+    );
+}
+
+
+const tankBody =
+new THREE.Mesh(
+
+    new THREE.CylinderGeometry(
+        4.2,
+        4.2,
+        6,
+        24
+    ),
+
+    new THREE.MeshStandardMaterial({
+        color:0x66777c,
+        metalness:.7,
+        roughness:.32
+    })
+
+);
+
+tankBody.position.y =
+9;
+
+tankBody.castShadow =
+true;
+
+waterTower.add(
+    tankBody
+);
+
+
+const water =
+new THREE.Mesh(
+
+    new THREE.CylinderGeometry(
+        3.9,
+        3.9,
+        4,
+        24
+    ),
+
+    new THREE.MeshStandardMaterial({
+
+        color:0x229bd2,
+
+        transparent:true,
+
+        opacity:.72,
+
+        emissive:0x07537a,
+
+        emissiveIntensity:.35
+
+    })
+
+);
+
+water.position.y =
+8;
+
+waterTower.add(
+    water
+);
+
+
+scene.add(
+    waterTower
+);
+
+
+/* =========================================================
+   WATER PIPES
+========================================================= */
+
+const waterPipes = [];
+
+function createPipe(
+    a,
+    b
+){
+
+    const dir =
+    new THREE.Vector3()
+        .subVectors(b,a);
+
+    const len =
+    dir.length();
+
+    const geometry =
+    new THREE.CylinderGeometry(
+        .13,
+        .13,
+        len,
+        8
+    );
+
+    const material =
+    new THREE.MeshStandardMaterial({
+        color:0x178bb8,
+        emissive:0x064d68,
+        emissiveIntensity:.45
+    });
+
+    const mesh =
+    new THREE.Mesh(
+        geometry,
+        material
+    );
+
+    mesh.position
+        .copy(a)
+        .add(b)
+        .multiplyScalar(.5);
+
+    mesh.quaternion
+        .setFromUnitVectors(
+            new THREE.Vector3(0,1,0),
+            dir.normalize()
+        );
+
+    scene.add(
+        mesh
+    );
+
+    waterPipes.push(
+        mesh
+    );
+
+    return mesh;
+}
+
+
+createPipe(
+    new THREE.Vector3(
+        45,2,25
+    ),
+    new THREE.Vector3(
+        43,2,5
+    )
+);
+
+createPipe(
+    new THREE.Vector3(
+        43,2,5
+    ),
+    new THREE.Vector3(
+        25,2,-25
+    )
+);
+
+createPipe(
+    new THREE.Vector3(
+        43,2,5
+    ),
+    new THREE.Vector3(
+        26,2,18
+    )
+);
+
+createPipe(
+    new THREE.Vector3(
+        25,2,-25
+    ),
+    new THREE.Vector3(
+        -20,2,-17
+    )
+);
+
+
+/* =========================================================
+   POWER CABLES
+========================================================= */
+
+const powerCables = [];
+
+function createCable(
+    a,
+    b
+){
+
+    const curve =
+    new THREE.LineCurve3(
+        a,
+        b
+    );
+
+    const geometry =
+    new THREE.TubeGeometry(
+        curve,
+        20,
+        .065,
+        6,
+        false
+    );
+
+    const material =
+    new THREE.MeshStandardMaterial({
+        color:0xe2b744,
+        emissive:0x634e12,
+        emissiveIntensity:.6
+    });
+
+    const cable =
+    new THREE.Mesh(
+        geometry,
+        material
+    );
+
+    scene.add(
+        cable
+    );
+
+    powerCables.push(
+        cable
+    );
+
+    return cable;
+}
+
+
+createCable(
+    new THREE.Vector3(
+        -42,5,-2
+    ),
+    new THREE.Vector3(
+        -20,7,-17
+    )
+);
+
+createCable(
+    new THREE.Vector3(
+        -42,5,-2
+    ),
+    new THREE.Vector3(
+        -28,6,23
+    )
+);
+
+createCable(
+    new THREE.Vector3(
+        -20,7,-17
+    ),
+    new THREE.Vector3(
+        25,7,-25
+    )
+);
+
+createCable(
+    new THREE.Vector3(
+        -20,7,-17
+    ),
+    new THREE.Vector3(
+        26,6,18
+    )
+);
+
+
+/* =========================================================
+   STREET LIGHTS
+========================================================= */
+
+const streetLights = [];
+
+function createStreetLight(
+    x,
+    z
+){
+
+    const group =
+    new THREE.Group();
+
+    group.position.set(
+        x,
+        0,
+        z
+    );
+
+
+    const pole =
+    new THREE.Mesh(
+
+        new THREE.CylinderGeometry(
+            .11,
+            .15,
+            5.5,
+            10
+        ),
+
+        new THREE.MeshStandardMaterial({
+            color:0x29332f,
+            metalness:.65,
+            roughness:.4
+        })
+
+    );
+
+    pole.position.y =
+    2.75;
+
+    pole.castShadow =
+    true;
+
+    group.add(
+        pole
+    );
+
+
+    const arm =
+    new THREE.Mesh(
+
+        new THREE.BoxGeometry(
+            1.1,
+            .08,
+            .08
+        ),
+
+        new THREE.MeshStandardMaterial({
+            color:0x29332f
+        })
+
+    );
+
+    arm.position.set(
+        .48,
+        5.3,
+        0
+    );
+
+    group.add(
+        arm
+    );
+
+
+    const bulb =
+    new THREE.Mesh(
+
+        new THREE.SphereGeometry(
+            .28,
+            12,
+            8
+        ),
+
+        new THREE.MeshStandardMaterial({
+
+            color:0xffd98c,
+
+            emissive:0xffa32c,
+
+            emissiveIntensity:2
+
+        })
+
+    );
+
+    bulb.position.set(
+        .9,
+        5.15,
+        0
+    );
+
+    group.add(
+        bulb
+    );
+
+
+    const light =
+    new THREE.PointLight(
+        0xffbd5c,
+        1.9,
+        13
+    );
+
+    light.position.set(
+        .9,
+        5,
+        0
+    );
+
+    light.castShadow =
+    true;
+
+    group.add(
+        light
+    );
+
+
+    scene.add(
+        group
+    );
+
+
+    streetLights.push({
+        group,
+        bulb,
+        light
+    });
+}
+
+
+/* 两侧主路 */
+
+for(
+    let z=-60;
+    z<=60;
+    z+=20
+){
+
+    createStreetLight(
+        -6.5,
+        z
+    );
+
+    createStreetLight(
+        6.5,
+        z
+    );
+}
+
+
+/* 横向道路 */
+
+for(
+    let x=-45;
+    x<=45;
+    x+=18
+){
+
+    createStreetLight(
+        x,
+        -10
+    );
+}
+
+
+/* =========================================================
+   TREES
+========================================================= */
+
+function createTree(
+    x,
+    z,
+    scale=1
+){
+
+    const group =
+    new THREE.Group();
+
+    const trunk =
+    new THREE.Mesh(
+
+        new THREE.CylinderGeometry(
+            .4,
+            .65,
+            4,
+            8
+        ),
+
+        new THREE.MeshStandardMaterial({
+            color:0x60432d
+        })
+
+    );
+
+    trunk.position.y =
+    2;
+
+    trunk.castShadow =
+    true;
+
+    group.add(
+        trunk
+    );
+
+
+    const crown =
+    new THREE.Mesh(
+
+        new THREE.SphereGeometry(
+            3.2,
+            10,
+            8
+        ),
+
+        new THREE.MeshStandardMaterial({
+            color:0x2e653b,
+            roughness:1
+        })
+
+    );
+
+    crown.position.y =
+    5.2;
+
+    crown.castShadow =
+    true;
+
+    group.add(
+        crown
+    );
+
+
+    group.position.set(
+        x,
+        0,
+        z
+    );
+
+    group.scale.setScalar(
+        scale
+    );
+
+    scene.add(
+        group
+    );
+}
+
+
+[
+    [-55,-48,1.1],
+    [-48,-28,.9],
+    [-54,15,1.2],
+    [-50,43,1],
+    [-38,49,.8],
+    [-5,48,1.1],
+    [8,48,.9],
+    [50,48,1.2],
+    [55,35,.9],
+    [54,8,1.1],
+    [52,-18,.9],
+    [46,-48,1.1],
+    [12,-50,.8],
+    [-15,-50,1],
+    [0,32,.8]
+].forEach(
+    p =>
+    createTree(
+        p[0],
+        p[1],
+        p[2]
+    )
+);
+
+
+/* =========================================================
+   FENCE
+========================================================= */
+
+function createFenceLine(
+    x1,
+    z1,
+    x2,
+    z2
+){
+
+    const posts = 14;
+
+    for(
+        let i=0;
+        i<=posts;
+        i++
+    ){
+
+        const t =
+        i / posts;
+
+        const x =
+        x1 + (x2-x1)*t;
+
+        const z =
+        z1 + (z2-z1)*t;
+
+        const post =
+        new THREE.Mesh(
+
+            new THREE.BoxGeometry(
+                .16,
+                1.5,
+                .16
+            ),
+
+            new THREE.MeshStandardMaterial({
+                color:0x65492f
+            })
+
+        );
+
+        post.position.set(
+            x,
+            .75,
+            z
+        );
+
+        post.castShadow =
+        true;
+
+        scene.add(
+            post
+        );
+
+    }
+
+
+    const curve =
+    new THREE.LineCurve3(
+
+        new THREE.Vector3(
+            x1,
+            1.1,
+            z1
+        ),
+
+        new THREE.Vector3(
+            x2,
+            1.1,
+            z2
+        )
+
+    );
+
+
+    const wire =
+    new THREE.Mesh(
+
+        new THREE.TubeGeometry(
+            curve,
+            30,
+            .035,
+            5,
+            false
+        ),
+
+        new THREE.MeshStandardMaterial({
+            color:0x8b765a
+        })
+
+    );
+
+    scene.add(
+        wire
+    );
+}
+
+
+/* 牲畜区域 */
+
+createFenceLine(
+    -45,
+    20,
+    -5,
+    20
+);
+
+createFenceLine(
+    -45,
+    20,
+    -45,
+    55
+);
+
+createFenceLine(
+    -5,
+    20,
+    -5,
+    55
+);
+
+createFenceLine(
+    -45,
+    55,
+    -5,
+    55
+);
+
+
+/* =========================================================
+   COWS
+========================================================= */
+
+const cows = [];
+
+function createCow(
+    x,
+    z,
+    scale=.8
+){
+
+    const group =
+    new THREE.Group();
+
+
+    const body =
+    new THREE.Mesh(
+
+        new THREE.BoxGeometry(
+            2.2,
+            1.15,
+            1.1
+        ),
+
+        new THREE.MeshStandardMaterial({
+            color:0xe7e0d4,
+            roughness:1
+        })
+
+    );
+
+    body.position.y =
+    1.15;
+
+    group.add(
+        body
+    );
+
+
+    const head =
+    new THREE.Mesh(
+
+        new THREE.BoxGeometry(
+            .8,
+            .85,
+            .8
+        ),
+
+        new THREE.MeshStandardMaterial({
+            color:0xd5cabc
+        })
+
+    );
+
+    head.position.set(
+        1.35,
+        1.4,
+        0
+    );
+
+    group.add(
+        head
+    );
+
+
+    /* 腿 */
+
+    for(
+        let i=0;
+        i<4;
+        i++
+    ){
+
+        const leg =
+        new THREE.Mesh(
+
+            new THREE.CylinderGeometry(
+                .1,
+                .12,
+                .9,
+                6
+            ),
+
+            new THREE.MeshStandardMaterial({
+                color:0x594838
+            })
+
+        );
+
+        leg.position.set(
+            i<2 ? .7 : -.7,
+            .45,
+            i%2===0 ? .35 : -.35
+        );
+
+        group.add(
+            leg
+        );
+
+    }
+
+
+    group.position.set(
+        x,
+        0,
+        z
+    );
+
+    group.rotation.y =
+    Math.random() *
+    Math.PI * 2;
+
+    group.scale.setScalar(
+        scale
+    );
+
+    scene.add(
+        group
+    );
+
+    cows.push(
+        group
+    );
+}
+
+
+[
+    [-35,29],
+    [-25,38],
+    [-14,28],
+    [-36,46],
+    [-17,48],
+    [-8,37],
+    [-30,51]
+].forEach(
+    p =>
+    createCow(
+        p[0],
+        p[1],
+        .7 + Math.random()*.15
+    )
+);
+
+
+/* =========================================================
+   TIME
+========================================================= */
+
+let isNight = true;
+
+let streetLightOn = true;
+let houseLightOn = true;
+
+window.setTimeMode =
+function(mode){
+
+    isNight =
+    mode === "night";
+
+    const day =
+    mode === "day";
+
+
+    document
+        .getElementById("dayBtn")
+        .classList.toggle(
+            "active",
+            day
+        );
+
+    document
+        .getElementById("nightBtn")
+        .classList.toggle(
+            "active",
+            !day
+        );
+
+
+    if(day){
+
+        scene.background =
+        new THREE.Color(
+            0x8db7cc
+        );
+
+        scene.fog.color =
+        new THREE.Color(
+            0x8db7cc
+        );
+
+        ambient.intensity =
+        1.05;
+
+        sun.intensity =
+        2.7;
+
+        streetLights.forEach(
+            l => {
+
+                l.light.visible =
+                false;
+
+                l.bulb.material
+                    .emissiveIntensity =
+                    .15;
+
+            }
+        );
+
+
+        buildings.house.windows.forEach(
+            w => {
+
+                w.material
+                    .emissiveIntensity =
+                    houseLightOn
+                    ? .2
+                    : .02;
+
+            }
+        );
+
+
+        showToast(
+            "已切换到白天模式"
+        );
+
+    }else{
+
+        scene.background =
+        new THREE.Color(
+            0x06120c
+        );
+
+        scene.fog.color =
+        new THREE.Color(
+            0x06120c
+        );
+
+        ambient.intensity =
+        .22;
+
+        sun.intensity =
+        .16;
+
+
+        streetLights.forEach(
+            l => {
+
+                l.light.visible =
+                streetLightOn;
+
+                l.bulb.material
+                    .emissiveIntensity =
+                    streetLightOn
+                    ? 2
+                    : .05;
+
+            }
+        );
+
+
+        buildings.house.windows.forEach(
+            w => {
+
+                w.material
+                    .emissiveIntensity =
+                    houseLightOn
+                    ? 1.7
+                    : .02;
+
+            }
+        );
+
+
+        showToast(
+            "已切换到夜晚模式"
+        );
+
+    }
+
+};
+
+
+window.toggleStreetLights =
+function(){
+
+    streetLightOn =
+    !streetLightOn;
+
+
+    streetLights.forEach(
+        l => {
+
+            l.light.visible =
+            isNight &&
+            streetLightOn;
+
+            l.bulb.material
+                .emissiveIntensity =
+                streetLightOn
+                ? 2
+                : .05;
+
+        }
+    );
+
+
+    showToast(
+        streetLightOn
+        ? "路灯系统已开启"
+        : "路灯系统已关闭"
+    );
+};
+
+
+window.toggleHouseLights =
+function(){
+
+    houseLightOn =
+    !houseLightOn;
+
+
+    buildings.house.windows.forEach(
+        w => {
+
+            w.material
+                .emissiveIntensity =
+                houseLightOn
+                ? (isNight ? 1.7 : .2)
+                : .02;
+
+        }
+    );
+
+
+    showToast(
+        houseLightOn
+        ? "建筑室内灯已开启"
+        : "建筑室内灯已关闭"
+    );
+};
+
+
+/* =========================================================
+   DRAWER DATA
+========================================================= */
+
+const drawer =
+document.getElementById(
+    "drawer"
+);
+
+const drawerTitle =
+document.getElementById(
+    "drawerTitle"
+);
+
+const drawerSubtitle =
+document.getElementById(
+    "drawerSubtitle"
+);
+
+const drawerBody =
+document.getElementById(
+    "drawerBody"
+);
+
+
+const drawerData = {
+
+power:{
+
+title:"⚡ 电路系统",
+
+subtitle:"POWER MANAGEMENT",
+
+html:`
+
+<div class="section">
+
+<div class="section-label">
+实时电力
+</div>
+
+<div class="data-grid">
+
+<div class="data-card">
+<div class="data-label">总功率</div>
+<div class="data-value">
+126.8 <small>kW</small>
+</div>
+</div>
+
+<div class="data-card">
+<div class="data-label">今日用电</div>
+<div class="data-value">
+684 <small>kWh</small>
+</div>
+</div>
+
+<div class="data-card">
+<div class="data-label">当前电压</div>
+<div class="data-value">
+381 <small>V</small>
+</div>
+</div>
+
+<div class="data-card">
+<div class="data-label">负载率</div>
+<div class="data-value">
+42 <small>%</small>
+</div>
+</div>
+
+</div>
+</div>
+
+
+<div class="section">
+
+<div class="section-label">
+照明控制
+</div>
+
+<div class="device">
+
+<div class="device-icon">💡</div>
+
+<div class="device-info">
+
+<div class="device-name">
+道路照明
+</div>
+
+<div class="device-desc">
+16 盏路灯 · 夜间自动控制
+</div>
+
+</div>
+
+<div
+class="switch ${streetLightOn ? "on":""}"
+onclick="
+this.classList.toggle('on');
+toggleStreetLights();
+">
+</div>
+
+</div>
+
+
+<div class="device">
+
+<div class="device-icon">🏠</div>
+
+<div class="device-info">
+
+<div class="device-name">
+建筑照明
+</div>
+
+<div class="device-desc">
+主屋 / 牛舍 / 仓库
+</div>
+
+</div>
+
+<div
+class="switch ${houseLightOn ? "on":""}"
+onclick="
+this.classList.toggle('on');
+toggleHouseLights();
+">
+</div>
+
+</div>
+
+</div>
+
+
+<div class="section">
+
+<div class="section-label">
+配电设备
+</div>
+
+<div class="device">
+
+<div class="device-icon">⚡</div>
+
+<div class="device-info">
+
+<div class="device-name">
+1号主配电柜
+</div>
+
+<div class="device-desc">
+牧场主配电中心
+</div>
+
+</div>
+
+<div class="device-status">
+正常
+</div>
+
+</div>
+
+
+<div class="device">
+
+<div class="device-icon">◉</div>
+
+<div class="device-info">
+
+<div class="device-name">
+主线路
+</div>
+
+<div class="device-desc">
+负载 42% · 温度 34°C
+</div>
+
+</div>
+
+<div class="device-status">
+正常
+</div>
+
+</div>
+
+</div>
+
+`
+
+},
+
+
+water:{
+
+title:"💧 水利系统",
+
+subtitle:"WATER MANAGEMENT",
+
+html:`
+
+<div class="section">
+
+<div class="section-label">
+水利实时状态
+</div>
+
+<div class="data-grid">
+
+<div class="data-card">
+<div class="data-label">当前水压</div>
+<div class="data-value">
+${waterSystem.pressure}
+<small>MPa</small>
+</div>
+</div>
+
+<div class="data-card">
+<div class="data-label">水塔水位</div>
+<div class="data-value">
+${waterSystem.level}
+<small>%</small>
+</div>
+</div>
+
+<div class="data-card">
+<div class="data-label">今日用水</div>
+<div class="data-value">
+18.6 <small>m³</small>
+</div>
+</div>
+
+<div class="data-card">
+<div class="data-label">管网状态</div>
+<div class="data-value green">
+正常
+</div>
+</div>
+
+</div>
+</div>
+
+
+<div class="section">
+
+<div class="section-label">
+水泵控制
+</div>
+
+<div class="device">
+
+<div class="device-icon">
+💧
+</div>
+
+<div class="device-info">
+
+<div class="device-name">
+1号供水泵
+</div>
+
+<div class="device-desc">
+当前频率 42 Hz
+</div>
+
+</div>
+
+<div
+class="switch ${waterSystem.pumpOn ? "on":""}"
+onclick="
+waterSystem.pumpOn=!waterSystem.pumpOn;
+this.classList.toggle('on');
+updateWaterVisual();
+">
+</div>
+
+</div>
+
+
+<div class="device">
+
+<div class="device-icon">
+◉
+</div>
+
+<div class="device-info">
+
+<div class="device-name">
+东区供水阀门
+</div>
+
+<div class="device-desc">
+自动调节
+</div>
+
+</div>
+
+<div
+class="switch ${waterSystem.valveOn ? "on":""}"
+onclick="
+waterSystem.valveOn=!waterSystem.valveOn;
+this.classList.toggle('on');
+updateWaterVisual();
+">
+</div>
+
+</div>
+
+</div>
+
+
+<div class="section">
+
+<div class="section-label">
+管网监测
+</div>
+
+<div class="device">
+
+<div class="device-icon">
+≋
+</div>
+
+<div class="device-info">
+
+<div class="device-name">
+东区管网
+</div>
+
+<div class="device-desc">
+压力 0.42 MPa
+</div>
+
+</div>
+
+<div class="device-status">
+正常
+</div>
+
+</div>
+
+
+<div class="device">
+
+<div class="device-icon">
+≋
+</div>
+
+<div class="device-info">
+
+<div class="device-name">
+西区管网
+</div>
+
+<div class="device-desc">
+压力 0.39 MPa
+</div>
+
+</div>
+
+<div class="device-status">
+正常
+</div>
+
+</div>
+
+</div>
+
+`
+
+},
+
+
+fire:{
+
+title:"🔥 消防系统",
+
+subtitle:"FIRE SAFETY",
+
+html:`
+
+<div class="section">
+
+<div class="section-label">
+消防实时状态
+</div>
+
+<div class="data-grid">
+
+<div class="data-card">
+<div class="data-label">消防水池</div>
+<div class="data-value">
+86 <small>%</small>
+</div>
+</div>
+
+<div class="data-card">
+<div class="data-label">消防压力</div>
+<div class="data-value">
+.58 <small>MPa</small>
+</div>
+</div>
+
+<div class="data-card">
+<div class="data-label">烟感设备</div>
+<div class="data-value">
+24 <small>在线</small>
+</div>
+</div>
+
+<div class="data-card">
+<div class="data-label">当前报警</div>
+<div class="data-value green">
+0
+</div>
+</div>
+
+</div>
+</div>
+
+
+<div class="section">
+
+<div class="section-label">
+消防设备
+</div>
+
+<div class="device">
+
+<div class="device-icon">
+🔥
+</div>
+
+<div class="device-info">
+
+<div class="device-name">
+消防泵
+</div>
+
+<div class="device-desc">
+自动待机
+</div>
+
+</div>
+
+<div class="device-status">
+正常
+</div>
+
+</div>
+
+
+<div class="device">
+
+<div class="device-icon">
+🚿
+</div>
+
+<div class="device-info">
+
+<div class="device-name">
+自动喷淋
+</div>
+
+<div class="device-desc">
+全园区覆盖
+</div>
+
+</div>
+
+<div class="switch on"
+onclick="
+this.classList.toggle('on');
+">
+</div>
+
+</div>
+
+
+<div class="device">
+
+<div class="device-icon">
+◉
+</div>
+
+<div class="device-info">
+
+<div class="device-name">
+烟雾探测器
+</div>
+
+<div class="device-desc">
+24 个探测器在线
+</div>
+
+</div>
+
+<div class="device-status">
+正常
+</div>
+
+</div>
+
+
+<div class="device">
+
+<div class="device-icon">
+🚨
+</div>
+
+<div class="device-info">
+
+<div class="device-name">
+消防报警
+</div>
+
+<div class="device-desc">
+当前没有报警事件
+</div>
+
+</div>
+
+<div class="device-status">
+正常
+</div>
+
+</div>
+
+</div>
+
+`
+
+}
+
+};
+
+
+/* =========================================================
+   DRAWER
+========================================================= */
+
+window.openDrawer =
+function(type){
+
+    const data =
+    drawerData[type];
+
+    if(!data)
+        return;
+
+
+    drawerTitle.innerHTML =
+    data.title;
+
+    drawerSubtitle.innerHTML =
+    data.subtitle;
+
+    drawerBody.innerHTML =
+    data.html;
+
+    drawer.classList.add(
+        "open"
+    );
+};
+
+
+window.closeDrawer =
+function(){
+
+    drawer.classList.remove(
+        "open"
+    );
+
+};
+
+
+/* =========================================================
+   WATER VISUAL
+========================================================= */
+
+window.updateWaterVisual =
+function(){
+
+    const active =
+    waterSystem.pumpOn &&
+    waterSystem.valveOn;
+
+    waterPipes.forEach(
+        p => {
+
+            p.material.color.set(
+                active
+                ? 0x179bd0
+                : 0x44565b
+            );
+
+            p.material.emissive.set(
+                active
+                ? 0x075a78
+                : 0x111718
+            );
+
+            p.material.emissiveIntensity =
+                active ? .65 : .05;
+
+        }
+    );
+
+};
+
+
+/* =========================================================
+   BUILDING INTERACTION
+========================================================= */
+
+const raycaster =
+new THREE.Raycaster();
+
+const pointer =
+new THREE.Vector2();
+
+let selectedBuilding =
+null;
+
+
+const buildingInfo =
+document.getElementById(
+    "buildingInfo"
+);
+
+const buildingName =
+document.getElementById(
+    "buildingName"
+);
+
+const buildingDesc =
+document.getElementById(
+    "buildingDesc"
+);
+
+
+const buildingNames = {
+
+house:[
+    "牧场主屋",
+    "办公 / 生活 / 监控中心"
+],
+
+barn:[
+    "牲畜牛舍",
+    "286 头牲畜 · 环境监测"
+],
+
+warehouse:[
+    "饲料仓库",
+    "饲料库存与温湿度监测"
+],
+
+machine:[
+    "农机库",
+    "拖拉机 / 收割机 / 农机设备"
+]
+
+};
+
+
+renderer.domElement.addEventListener(
+    "pointerdown",
+    event => {
+
+        pointer.x =
+        event.clientX /
+        innerWidth * 2 - 1;
+
+        pointer.y =
+        -(event.clientY /
+        innerHeight) * 2 + 1;
+
+
+        raycaster.setFromCamera(
+            pointer,
+            camera
+        );
+
+
+        const objects =
+        raycaster.intersectObjects(
+            scene.children,
+            true
+        );
+
+
+        let hit = null;
+
+
+        for(
+            const obj of objects
+        ){
+
+            let current =
+            obj.object;
+
+
+            while(
+                current &&
+                current !== scene
+            ){
+
+                if(
+                    current.userData &&
+                    current.userData.building
+                ){
+
+                    hit =
+                    current.userData.building;
+
+                    break;
+
+                }
+
+                current =
+                current.parent;
+
+            }
+
+            if(hit)
+                break;
+
+        }
+
+
+        if(!hit)
+            return;
+
+
+        selectedBuilding =
+        hit;
+
+
+        const data =
+        buildingNames[hit];
+
+
+        buildingName.innerText =
+        data[0];
+
+        buildingDesc.innerText =
+        data[1];
+
+        buildingInfo.classList.add(
+            "show"
+        );
+
+    }
+);
+
+
+window.openSelectedBuilding =
+function(){
+
+    if(
+        !selectedBuilding
+    )
+        return;
+
+
+    if(
+        selectedBuilding === "house"
+    ){
+
+        focusBuilding(
+            "house"
+        );
+
+    }else if(
+        selectedBuilding === "barn"
+    ){
+
+        focusBuilding(
+            "barn"
+        );
+
+    }
+
+    buildingInfo.classList.remove(
+        "show"
+    );
+
+};
+
+
+/* =========================================================
+   CAMERA FOCUS
+========================================================= */
+
+const initialCamera =
+new THREE.Vector3(
+    65,
+    48,
+    65
+);
+
+
+window.resetCamera =
+function(){
+
+    camera.position.copy(
+        initialCamera
+    );
+
+    controls.target.set(
+        0,
+        0,
+        0
+    );
+
+    controls.update();
+
+};
+
+
+window.focusBuilding =
+function(type){
+
+    if(
+        type === "house"
+    ){
+
+        camera.position.set(
+            15,
+            18,
+            27
+        );
+
+        controls.target.set(
+            -20,
+            4,
+            -17
+        );
+
+    }
+
+
+    if(
+        type === "barn"
+    ){
+
+        camera.position.set(
+            55,
+            20,
+            10
+        );
+
+        controls.target.set(
+            25,
+            4,
+            -25
+        );
+
+    }
+
+
+    controls.update();
+
+};
+
+
+/* =========================================================
+   TOAST
+========================================================= */
+
+let toastTimer;
+
+window.showToast =
+function(message){
+
+    const toast =
+    document.getElementById(
+        "toast"
+    );
+
+    toast.innerText =
+    message;
+
+    toast.classList.add(
+        "show"
+    );
+
+
+    clearTimeout(
+        toastTimer
+    );
+
+
+    toastTimer =
+    setTimeout(
+        () => {
+
+            toast.classList.remove(
+                "show"
+            );
+
+        },
+        1800
+    );
+
+};
+
+
+/* =========================================================
+   RESIZE
+========================================================= */
+
+window.addEventListener(
+    "resize",
+    () => {
+
+        camera.aspect =
+        innerWidth /
+        innerHeight;
+
+        camera.updateProjectionMatrix();
+
+        renderer.setSize(
+            innerWidth,
+            innerHeight
+        );
+
+    }
+);
+
+
+/* =========================================================
+   ANIMATION
+========================================================= */
+
+const clock =
+new THREE.Clock();
+
+
+function animate(){
+
+    requestAnimationFrame(
+        animate
+    );
+
+
+    const time =
+    clock.getElapsedTime();
+
+
+    /* 水位 */
+
+    water.position.y =
+    8 +
+    Math.sin(
+        time * 1.3
+    ) * .025;
+
+
+    /* 路灯呼吸 */
+
+    if(isNight){
+
+        streetLights.forEach(
+            (lamp,index) => {
+
+                if(
+                    lamp.light.visible
+                ){
+
+                    lamp.light.intensity =
+                    1.75 +
+                    Math.sin(
+                        time * 2 +
+                        index
+                    ) * .1;
+
+                }
+
+            }
+        );
+
+    }
+
+
+    /* 牛轻微移动 */
+
+    cows.forEach(
+        (cow,index) => {
+
+            cow.position.y =
+            Math.sin(
+                time * .6 +
+                index
+            ) * .025;
+
+        }
+    );
+
+
+    controls.update();
+
+    renderer.render(
+        scene,
+        camera
+    );
+
+}
+
+
+animate();
+
+
+/* =========================================================
+   DEFAULT
+========================================================= */
+
+setTimeMode(
+    "night"
+);
+
+updateWaterVisual();
+
+</script>
+
+</body>
+</html>

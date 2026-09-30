@@ -1,0 +1,122 @@
+/* =========================================================
+   TOP
+========================================================= */
+
+.topbar{
+    position:absolute;
+    z-index:10;
+
+    left:0;
+    right:0;
+    top:0;
+
+    height:82px;
+
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+
+    padding:0 28px;
+
+    pointer-events:none;
+
+    background:
+        linear-gradient(
+            180deg,
+            rgba(5,15,10,.94),
+            rgba(5,15,10,.55),
+            transparent
+        );
+}
+
+.brand{
+    display:flex;
+    align-items:center;
+    gap:12px;
+
+    pointer-events:auto;
+}
+
+.brand-logo{
+    width:42px;
+    height:42px;
+
+    display:flex;
+    align-items:center;
+    justify-content:center;
+
+    border-radius:11px;
+
+    background:
+        linear-gradient(
+            145deg,
+            #1d5b38,
+            #102d1e
+        );
+
+    border:1px solid rgba(120,240,164,.25);
+
+    box-shadow:
+        0 0 25px rgba(55,210,120,.08);
+
+    font-size:22px;
+}
+
+.brand-name{
+    font-size:18px;
+    font-weight:700;
+    letter-spacing:.5px;
+}
+
+.brand-sub{
+    margin-top:3px;
+    font-size:10px;
+    letter-spacing:1.4px;
+    color:#718b7b;
+}
+
+.top-right{
+    display:flex;
+    align-items:center;
+    gap:8px;
+
+    pointer-events:auto;
+}
+
+.status-pill{
+    display:flex;
+    align-items:center;
+    gap:7px;
+
+    height:34px;
+
+    padding:0 12px;
+
+    border-radius:9px;
+
+    background:rgba(8,24,15,.75);
+
+    border:1px solid rgba(255,255,255,.07);
+
+    color:#9fb4a7;
+
+    font-size:11px;
+
+    backdrop-filter:blur(12px);
+}
+
+.status-dot{
+    width:7px;
+    height:7px;
+    border-radius:50%;
+
+    background:#50df91;
+
+    box-shadow:
+        0 0 9px #50df91;
+}
+
+.status-dot.warn{
+    background:#ffc35b;
+    box-shadow:0 0 9px #ffc35b;
+}

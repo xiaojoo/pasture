@@ -1,0 +1,20 @@
+# Installed dependencies: restored with `npm install` from package-lock.json.
+# three is 30 MB and is a vendored copy of a published package -- it does not belong
+# in this repository's history.
+node_modules/
+
+# Console output from `node server.mjs` (the server logs every request it answers).
+server.log
+server.err.log
+*.log
+
+# Editor / OS junk.
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Local overrides that must never travel with the tree.
+.env
+.env.local

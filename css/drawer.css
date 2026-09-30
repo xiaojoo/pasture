@@ -1,0 +1,177 @@
+/* =========================================================
+   RIGHT DRAWER
+========================================================= */
+
+.drawer{
+    position:absolute;
+    z-index:30;
+
+    right:0;
+    top:0;
+
+    width:405px;
+    height:100%;
+
+    display:flex;
+    flex-direction:column;
+
+    background:
+        linear-gradient(
+            180deg,
+            rgba(8,23,15,.98),
+            rgba(4,13,9,.99)
+        );
+
+    border-left:1px solid rgba(255,255,255,.08);
+
+    box-shadow:
+        -30px 0 80px rgba(0,0,0,.4);
+
+    transform:translateX(100%);
+
+    transition:
+        transform .3s cubic-bezier(.2,.8,.2,1);
+}
+
+.drawer.open{
+    transform:translateX(0);
+}
+
+.drawer-head{
+    height:80px;
+
+    flex-shrink:0;
+
+    padding:0 20px;
+
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+
+    border-bottom:1px solid rgba(255,255,255,.07);
+}
+
+.drawer-title{
+    font-size:15px;
+    font-weight:700;
+}
+
+.drawer-subtitle{
+    margin-top:4px;
+
+    color:#61796b;
+
+    font-size:9px;
+    letter-spacing:1px;
+}
+
+.close{
+    width:32px;
+    height:32px;
+
+    border:0;
+
+    border-radius:8px;
+
+    background:rgba(255,255,255,.05);
+
+    color:#82958a;
+
+    cursor:pointer;
+
+    font-size:18px;
+}
+
+.drawer-body{
+    flex:1;
+
+    overflow:auto;
+
+    padding:18px;
+}
+
+.section{
+    margin-bottom:21px;
+}
+
+.section-label{
+    margin-bottom:9px;
+
+    font-size:9px;
+    color:#668073;
+    letter-spacing:.6px;
+}
+
+.data-grid{
+    display:grid;
+
+    grid-template-columns:
+        1fr 1fr;
+
+    gap:8px;
+}
+
+.data-card{
+    padding:13px;
+
+    border-radius:9px;
+
+    background:rgba(255,255,255,.035);
+
+    border:1px solid rgba(255,255,255,.035);
+}
+
+.data-label{
+    color:#6a8174;
+    font-size:9px;
+}
+
+.data-value{
+    margin-top:7px;
+
+    font-size:18px;
+
+    font-weight:700;
+}
+
+.data-value small{
+    margin-left:2px;
+
+    font-size:9px;
+
+    color:#6f8779;
+
+    font-weight:400;
+}
+
+/* Three cards to a row: used by every board's status block. minmax(0,1fr) rather
+   than 1fr because a grid track is never smaller than its content's minimum, and
+   one unbreakable string ("lightning.ino") would otherwise make that column wider
+   than its two neighbours. */
+.data-grid.three{
+    grid-template-columns:
+        minmax(0,1fr) minmax(0,1fr) minmax(0,1fr);
+}
+
+.data-value.dr-live{
+    color:#6ee7a0;
+}
+
+.data-value.dr-warn{
+    color:#ff8b6b;
+}
+
+.data-value.dr-dead{
+    color:#ff4d4d;
+}
+
+/* One full-width line under a card grid for the answers that are sentences: the
+   compile progress and the panel clock. */
+.card-status{
+    margin-top:9px;
+
+    font-size:10.5px;
+    color:#7f9a8b;
+
+    font-variant-numeric:tabular-nums;
+}

@@ -1,0 +1,49 @@
+/* =========================================================
+   BOTTOM
+========================================================= */
+
+.bottom{
+    position:absolute;
+
+    z-index:10;
+
+    bottom:22px;
+    left:50%;
+
+    transform:translateX(-50%);
+
+    display:flex;
+
+    gap:4px;
+
+    padding:5px;
+
+    border-radius:10px;
+
+    background:rgba(5,17,11,.82);
+
+    border:1px solid rgba(255,255,255,.08);
+
+    backdrop-filter:blur(14px);
+}
+
+.bottom-btn{
+    border:0;
+
+    padding:9px 12px;
+
+    border-radius:7px;
+
+    background:transparent;
+
+    color:#84998d;
+
+    font-size:10px;
+
+    cursor:pointer;
+}
+
+.bottom-btn:hover{
+    color:#e8fff0;
+    background:rgba(255,255,255,.055);
+}

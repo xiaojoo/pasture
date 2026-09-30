@@ -1,0 +1,45 @@
+/* =========================================================
+   DAY NIGHT
+========================================================= */
+
+.time-switch{
+    position:absolute;
+    z-index:10;
+
+    right:22px;
+    top:100px;
+
+    padding:4px;
+
+    display:flex;
+
+    border-radius:10px;
+
+    background:rgba(5,17,11,.78);
+
+    border:1px solid rgba(255,255,255,.08);
+
+    backdrop-filter:blur(12px);
+}
+
+.time-btn{
+    border:0;
+
+    padding:8px 12px;
+
+    border-radius:7px;
+
+    color:#71877b;
+
+    background:transparent;
+
+    font-size:10px;
+
+    cursor:pointer;
+}
+
+.time-btn.active{
+    color:#e6fff0;
+
+    background:#225337;
+}

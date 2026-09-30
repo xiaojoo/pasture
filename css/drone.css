@@ -1,0 +1,234 @@
+/* =========================================================
+   DRONE INSPECTION PANEL + FPV INSET
+========================================================= */
+
+.dr-alert{
+    min-height:17px;
+    margin:2px 0 8px;
+    font-size:11px;
+    color:#ffcf6b;
+}
+
+.esp-chips b.dr-live{
+    color:#6ee7a0;
+}
+
+.esp-chips b.dr-warn{
+    color:#ff8b6b;
+}
+
+/* A shed is a decision and will be undone; a tripped breaker is an outage. They
+   have to be two colours, not one with two words. */
+.esp-chips b.dr-dead{
+    color:#ff4d4d;
+}
+
+.esp-btn.dr-go{
+    background:rgba(110,231,160,.14);
+    border-color:rgba(110,231,160,.38);
+}
+
+.esp-btn.dr-stop{
+    background:rgba(255,120,90,.12);
+    border-color:rgba(255,120,90,.34);
+}
+
+.dr-lbl{
+    font-size:10.5px;
+    color:#7f9a8b;
+    margin-right:2px;
+}
+
+.dr-body{
+    display:grid;
+    grid-template-columns:186px minmax(0,1fr);
+    gap:12px;
+    align-items:start;
+    margin-top:4px;
+}
+
+.dr-pad{
+    display:grid;
+    grid-template-columns:repeat(3,1fr);
+    gap:5px;
+}
+
+.dr-pad-btn{
+    height:44px;
+    border-radius:8px;
+    background:rgba(255,255,255,.05);
+    border:1px solid rgba(255,255,255,.1);
+    color:#cfe3d6;
+    font-size:10.5px;
+    line-height:1.25;
+    cursor:pointer;
+    user-select:none;
+    touch-action:none;
+}
+
+.dr-pad-btn:hover{
+    background:rgba(110,231,160,.14);
+}
+
+.dr-pad-btn:active{
+    background:rgba(110,231,160,.3);
+    border-color:rgba(110,231,160,.6);
+    color:#eaf7ef;
+}
+
+.dr-pad-v{
+    font-size:10px;
+    color:#8fae9b;
+}
+
+.dr-pad-c{
+    color:#7f9a8b;
+    cursor:default;
+}
+
+.dr-pad-gap{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-size:10px;
+    color:#4d6357;
+}
+
+.dr-route{
+    list-style:none;
+    margin:0;
+    padding:0;
+    display:flex;
+    flex-direction:column;
+    gap:3px;
+}
+
+.dr-wp{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    padding:5px 8px;
+    border-radius:7px;
+    background:rgba(255,255,255,.02);
+    border:1px solid rgba(255,255,255,.05);
+    font-size:11px;
+    color:#a8bfb1;
+}
+
+.dr-wp-i{
+    width:16px;
+    height:16px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    border-radius:50%;
+    background:rgba(255,255,255,.06);
+    font-size:9.5px;
+    color:#7f9a8b;
+}
+
+.dr-wp.done{
+    color:#6c8b7a;
+}
+
+.dr-wp.done .dr-wp-i{
+    background:rgba(110,231,160,.18);
+    color:#6ee7a0;
+}
+
+.dr-wp.cur{
+    background:rgba(110,231,160,.12);
+    border-color:rgba(110,231,160,.42);
+    color:#eaf7ef;
+}
+
+.dr-wp.cur .dr-wp-i{
+    background:#6ee7a0;
+    color:#06170e;
+    font-weight:700;
+}
+
+/* The inset rectangle is positioned from JS so its border sits exactly on the
+   WebGL scissor box. */
+.dr-fpv{
+    position:absolute;
+    z-index:22;
+    display:none;
+    border:1px solid rgba(110,231,160,.45);
+    border-radius:10px;
+    box-shadow:0 0 0 1px rgba(0,0,0,.5), 0 16px 40px rgba(0,0,0,.45);
+    pointer-events:none;
+    overflow:hidden;
+}
+
+.dr-fpv.show{
+    display:block;
+}
+
+.dr-fpv-head{
+    position:absolute;
+    top:0;
+    left:0;
+    right:0;
+    padding:5px 9px;
+    background:linear-gradient(180deg,rgba(4,13,9,.85),transparent);
+    font-size:10.5px;
+    letter-spacing:.4px;
+    color:#9fd8b4;
+}
+
+.dr-fpv-foot{
+    position:absolute;
+    bottom:0;
+    left:0;
+    right:0;
+    padding:5px 9px;
+    background:linear-gradient(0deg,rgba(4,13,9,.85),transparent);
+    font-size:9.5px;
+    color:#7f9a8b;
+}
+
+/* ---- water control rows ---- */
+
+.wt-rows{
+    display:flex;
+    flex-direction:column;
+    gap:6px;
+    margin-top:6px;
+}
+
+.wt-row{
+    display:flex;
+    align-items:center;
+    gap:8px;
+}
+
+.wt-row-l{
+    flex:1 1 auto;
+    font-size:11px;
+    color:#a8bfb1;
+}
+
+.wt-row-v{
+    min-width:52px;
+    text-align:center;
+    font-size:11.5px;
+    color:#6ee7a0;
+    font-variant-numeric:tabular-nums;
+}
+
+.wt-step{
+    width:26px;
+    height:24px;
+    border-radius:6px;
+    background:rgba(255,255,255,.05);
+    border:1px solid rgba(255,255,255,.1);
+    color:#cfe3d6;
+    font-size:13px;
+    line-height:1;
+    cursor:pointer;
+}
+
+.wt-step:hover{
+    background:rgba(110,231,160,.14);
+}

@@ -1,0 +1,40 @@
+/* =========================================================
+   MOBILE
+========================================================= */
+
+@media(max-width:900px){
+
+    .left-panel{
+        width:205px;
+        left:10px;
+    }
+
+    .top-right .status-pill:nth-child(n+2){
+        display:none;
+    }
+
+    .minimap{
+        display:none;
+    }
+
+    .drawer{
+        width:100%;
+    }
+
+}
+
+@media(max-width:650px){
+
+    .left-panel{
+        transform:scale(.9);
+        transform-origin:top left;
+    }
+
+    .brand-sub{
+        display:none;
+    }
+
+    .bottom-btn:nth-child(3),
+    .bottom-btn:nth-child(4){
+        display:none;
+    }

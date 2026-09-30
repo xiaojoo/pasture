@@ -1,0 +1,76 @@
+*{
+    box-sizing:border-box;
+}
+
+/* The project had no scrollbar styling at all, so every scroll region drew the
+   platform's default: an opaque grey channel with arrow buttons, which reads as a
+   bar of background sitting inside the panel. Track and buttons are now transparent
+   and only the thumb is drawn, in the same muted green as the rest of the chrome. */
+*{
+    scrollbar-width:thin;
+    scrollbar-color:rgba(110,231,160,.28) transparent;
+}
+
+::-webkit-scrollbar{
+    width:8px;
+    height:8px;
+    background:transparent;
+}
+
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner{
+    background:transparent;
+    border:0;
+}
+
+::-webkit-scrollbar-thumb{
+    background:rgba(110,231,160,.28);
+    border-radius:4px;
+    border:2px solid transparent;
+    background-clip:content-box;
+}
+
+::-webkit-scrollbar-thumb:hover{
+    background:rgba(110,231,160,.5);
+    background-clip:content-box;
+}
+
+::-webkit-scrollbar-button,
+::-webkit-scrollbar-button:start:decrement,
+::-webkit-scrollbar-button:end:increment{
+    display:none;
+    width:0;
+    height:0;
+    background:transparent;
+}
+
+html,body{
+    margin:0;
+    width:100%;
+    height:100%;
+    overflow:hidden;
+    font-family:
+        Inter,
+        "Microsoft YaHei",
+        "PingFang SC",
+        Arial,
+        sans-serif;
+    background:#07120c;
+    color:#eaf7ef;
+}
+
+button{
+    font-family:inherit;
+}
+
+#app{
+    position:relative;
+    width:100%;
+    height:100%;
+    overflow:hidden;
+}
+
+#scene{
+    position:absolute;
+    inset:0;
+}

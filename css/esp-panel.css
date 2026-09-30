@@ -1,0 +1,453 @@
+/* =========================================================
+   ESP32 BOARD PANEL (电路系统 drawer) + SIM DOCK
+========================================================= */
+
+.esp-panel{
+    margin:14px 0 4px;
+    padding:14px;
+    border-radius:14px;
+    background:rgba(255,255,255,.03);
+    border:1px solid rgba(255,255,255,.07);
+}
+
+.esp-panel-head{
+    display:flex;
+    align-items:baseline;
+    justify-content:space-between;
+    gap:10px;
+    margin-bottom:10px;
+}
+
+.esp-panel-title{
+    font-size:12.5px;
+    font-weight:700;
+    color:#eaf7ef;
+}
+
+.esp-chips{
+    display:flex;
+    flex-wrap:wrap;
+    gap:6px;
+    margin-bottom:10px;
+}
+
+.esp-chip{
+    display:inline-flex;
+    align-items:baseline;
+    gap:6px;
+    padding:4px 9px;
+    border-radius:7px;
+    background:rgba(0,0,0,.28);
+    border:1px solid rgba(255,255,255,.06);
+    font-variant-numeric:tabular-nums;
+}
+
+.esp-chip i{
+    font-style:normal;
+    font-size:10.5px;
+    color:#7f9a8b;
+}
+
+.esp-chip b{
+    font-size:11.5px;
+    font-weight:700;
+    color:#6ee7a0;
+}
+
+.esp-ctl{
+    display:flex;
+    flex-wrap:wrap;
+    align-items:center;
+    gap:6px;
+    margin-bottom:10px;
+}
+
+.esp-btn{
+    padding:6px 12px;
+    border-radius:8px;
+    background:rgba(255,255,255,.05);
+    border:1px solid rgba(255,255,255,.1);
+    color:#eaf7ef;
+    font-size:11.5px;
+    cursor:pointer;
+    transition:background .15s,border-color .15s;
+}
+
+.esp-btn:hover{
+    background:rgba(110,231,160,.12);
+    border-color:rgba(110,231,160,.4);
+}
+
+.esp-btn:disabled{
+    opacity:.45;
+    cursor:default;
+}
+
+.esp-note{
+    font-size:10.5px;
+    color:#7f9a8b;
+}
+
+.esp-svghost{
+    border-radius:10px;
+    background:#04100a;
+    border:1px solid rgba(255,255,255,.05);
+    overflow:hidden;
+}
+
+.esp-svg{
+    display:block;
+    width:100%;
+    height:250px;
+}
+
+.esp-pinlabel{
+    fill:#8fa0b3;
+    font-size:6.4px;
+    font-family:ui-monospace,Consolas,monospace;
+}
+
+.esp-netlabel{
+    fill:#7f8fa3;
+    font-size:6.2px;
+    font-family:ui-monospace,Consolas,monospace;
+}
+
+.esp-parts{
+    width:100%;
+    margin-top:10px;
+    border-collapse:collapse;
+    font-size:11px;
+}
+
+.esp-parts th{
+    text-align:left;
+    font-weight:500;
+    font-size:10px;
+    color:#7f9a8b;
+    padding:0 6px 4px 0;
+    border-bottom:1px solid rgba(255,255,255,.07);
+}
+
+.esp-parts td{
+    padding:5px 6px 5px 0;
+    border-bottom:1px solid rgba(255,255,255,.04);
+    color:#c8dccf;
+    word-break:break-all;
+}
+
+.esp-parts td.esp-hi{
+    color:#ffcf6b;
+    font-weight:700;
+}
+
+/* ---- the persistent simulator dock ---- */
+
+.esp-dock{
+    position:absolute;
+    z-index:25;
+    left:16px;
+    bottom:16px;
+    width:660px;
+    max-width:calc(100% - 32px);
+    border-radius:14px;
+    background:linear-gradient(180deg,rgba(8,23,15,.96),rgba(4,13,9,.98));
+    border:1px solid rgba(255,255,255,.08);
+    box-shadow:0 20px 50px rgba(0,0,0,.45);
+    overflow:hidden;
+}
+
+.esp-dock-head{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:9px 12px;
+}
+
+.esp-dock-title{
+    font-size:11.5px;
+    font-weight:700;
+    color:#c8dccf;
+}
+
+.esp-dock-btn{
+    padding:3px 9px;
+    border-radius:6px;
+    background:rgba(255,255,255,.05);
+    border:1px solid rgba(255,255,255,.1);
+    color:#c8dccf;
+    font-size:10.5px;
+    cursor:pointer;
+}
+
+.esp-dock-btn[aria-pressed="true"]{
+    background:rgba(110,231,160,.16);
+    border-color:rgba(110,231,160,.45);
+    color:#6ee7a0;
+}
+
+.esp-dock-frame{
+    display:block;
+    width:100%;
+    height:430px;
+    border:0;
+    border-top:1px solid rgba(255,255,255,.06);
+    background:#0b0f14;
+}
+
+/* Maximised: the dock becomes the screen. It has to sit above the drawer (z 30) or
+   "maximise" would still leave a 405 px strip of the page on top of the circuit. */
+.esp-dock.max{
+    z-index:40;
+    left:0;
+    right:0;
+    top:0;
+    bottom:0;
+    width:auto;
+    max-width:none;
+    border-radius:0;
+    border:0;
+}
+
+.esp-dock.max .esp-dock-stack{
+    height:calc(100% - 41px);
+}
+
+.esp-dock.max.folded .esp-dock-stack{
+    display:none;
+}
+
+.esp-dock.folded .esp-dock-frame{
+    display:none;
+}
+/* ---- one dock, one tab per running board ---- */
+.esp-dock-tabs{
+    display:flex;
+    gap:4px;
+    flex:1;
+    margin:0 8px;
+    overflow:hidden;
+}
+
+.esp-tab{
+    padding:3px 8px;
+    border-radius:6px;
+    background:rgba(255,255,255,.04);
+    border:1px solid rgba(255,255,255,.09);
+    color:#8fa5b8;
+    font-size:10px;
+    white-space:nowrap;
+    cursor:pointer;
+}
+
+.esp-tab.sel{
+    color:#dff0e4;
+    background:rgba(110,231,160,.14);
+    border-color:rgba(110,231,160,.36);
+}
+
+.esp-tab-live{
+    border-color:rgba(110,231,160,.3);
+}
+
+/* A board that is compiling is not stuck, it is waiting on a 30-75 second build.
+   Without this the tab looks dead and the first thing a person does is click it
+   again, which is how you end up with two simulators for one board. */
+.esp-tab-busy::after{
+    content:'';
+    display:inline-block;
+    width:14px;
+    height:2px;
+    margin-left:6px;
+    vertical-align:middle;
+    background:linear-gradient(90deg,transparent,#ffcf6b,transparent);
+    background-size:200% 100%;
+    animation:esp-sweep 1.15s linear infinite;
+}
+
+@keyframes esp-sweep{
+    from{background-position:200% 0}
+    to{background-position:-200% 0}
+}
+
+.esp-dock-stack{
+    position:relative;
+    height:430px;
+}
+
+.esp-dock.folded .esp-dock-stack{
+    display:none;
+}
+
+/* Hidden tabs stay laid out and visible:hidden rather than display:none, because a
+   simulator in a collapsed frame is the one case where freezing the picture while
+   the firmware keeps running would be a lie about what is live. */
+.esp-dock-stack .esp-dock-frame{
+    position:absolute;
+    inset:0;
+    height:100%;
+}
+
+.esp-frame-hidden{
+    visibility:hidden;
+}
+
+.esp-dock-load{
+    display:none;
+    height:2px;
+    background:rgba(255,255,255,.06);
+    overflow:hidden;
+}
+
+.esp-dock.busy .esp-dock-load{
+    display:block;
+}
+
+.esp-dock-load i{
+    display:block;
+    height:100%;
+    width:38%;
+    background:linear-gradient(90deg,transparent,#6ee7a0,#ffcf6b,transparent);
+    animation:esp-load 1.5s ease-in-out infinite;
+}
+
+@keyframes esp-load{
+    0%{transform:translateX(-110%)}
+    100%{transform:translateX(300%)}
+}
+
+
+.esp-btn[aria-pressed="true"]{
+    background:rgba(110,231,160,.18);
+    border-color:rgba(110,231,160,.5);
+    color:#6ee7a0;
+}
+
+/* Taken over, not removed: the manual switches stay visible but stop
+   responding while the board drives them. */
+.esp-locked{
+    pointer-events:none;
+    opacity:.42;
+}
+
+/* ---- board picker (self-drawn listbox) ---- */
+
+.esp-pickhost,.esp-pick{
+    position:relative;
+}
+
+.esp-pick-btn{
+    display:inline-flex;
+    align-items:center;
+    padding:6px 10px;
+    border-radius:8px;
+    background:rgba(255,255,255,.05);
+    border:1px solid rgba(255,255,255,.12);
+    color:#eaf7ef;
+    font-size:11.5px;
+    cursor:pointer;
+}
+
+.esp-pick-btn::after{
+    content:"▾";
+    margin-left:7px;
+    color:#7f9a8b;
+    font-size:9px;
+}
+
+.esp-pick-list{
+    display:none;
+    position:absolute;
+    z-index:40;
+    top:calc(100% + 5px);
+    left:0;
+    width:262px;
+    max-height:236px;
+    overflow-y:auto;
+    padding:4px;
+    border-radius:10px;
+    background:#08150f;
+    border:1px solid rgba(255,255,255,.12);
+    box-shadow:0 18px 40px rgba(0,0,0,.55);
+}
+
+.esp-pick.open .esp-pick-list{
+    display:block;
+}
+
+.esp-pick-opt{
+    display:flex;
+    flex-direction:column;
+    gap:1px;
+    padding:6px 9px;
+    border-radius:7px;
+    cursor:pointer;
+}
+
+.esp-pick-opt:hover{
+    background:rgba(110,231,160,.1);
+}
+
+.esp-pick-opt.sel{
+    background:rgba(110,231,160,.16);
+}
+
+.esp-pick-name{
+    font-size:11.5px;
+    color:#eaf7ef;
+}
+
+.esp-pick-desc{
+    font-size:10px;
+    color:#7f9a8b;
+}
+
+/* ---- the harness: pin -> what it is bolted to on the ranch ---- */
+.esp-harness{
+    margin-top:8px;
+}
+
+.esp-h-title{
+    font-size:10px;
+    color:#8fa0b3;
+    margin:0 0 4px;
+}
+
+.esp-svg-harness{
+    height:auto;
+    background:#04100a;
+    border:1px solid rgba(255,255,255,.05);
+    border-radius:10px;
+}
+
+.esp-h-pin{
+    fill:#c8d6e5;
+    font-size:8px;
+    font-family:ui-monospace,Consolas,monospace;
+}
+
+.esp-h-name{
+    fill:#93a4b8;
+    font-size:8.4px;
+}
+
+.esp-h-sim{
+    fill:#6ee7a0;
+    font-size:7.4px;
+}
+
+/* A command the board has not acknowledged yet: the button still works, it is the
+   confirmation that is missing, so it is marked rather than disabled. */
+.esp-btn.dr-pending{
+    border-color:rgba(255,196,93,.5);
+    color:#ffcf6b;
+}
+
+/* The simulator's canvas is an example project, not this board's harness. Saying so
+   on the picture is cheaper than letting a person read a blink LED as a wiring
+   diagram for a fire panel. */
+.esp-canvas-caption{
+    margin:10px 0 4px;
+    font-size:9.5px;
+    color:#6f8095;
+}

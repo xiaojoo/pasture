@@ -1,0 +1,69 @@
+/* =========================================================
+   BUILDING INFO
+========================================================= */
+
+.building-info{
+    position:absolute;
+
+    z-index:12;
+
+    left:50%;
+    bottom:75px;
+
+    transform:
+        translate(-50%,10px);
+
+    padding:10px 14px;
+
+    display:flex;
+    align-items:center;
+    gap:12px;
+
+    border-radius:9px;
+
+    background:rgba(5,18,11,.9);
+
+    border:1px solid rgba(110,230,157,.15);
+
+    opacity:0;
+
+    pointer-events:none;
+
+    transition:.25s;
+
+    backdrop-filter:blur(12px);
+}
+
+.building-info.show{
+    opacity:1;
+
+    transform:
+        translate(-50%,0);
+}
+
+.building-info-name{
+    font-size:11px;
+    font-weight:600;
+}
+
+.building-info-desc{
+    color:#6f8779;
+    font-size:9px;
+    margin-top:3px;
+}
+
+.building-info-open{
+    padding:6px 9px;
+
+    border:0;
+
+    border-radius:6px;
+
+    color:#dfffea;
+
+    background:#1c5735;
+
+    cursor:pointer;
+
+    font-size:9px;
+}

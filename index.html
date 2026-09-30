@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>智慧牧场 · 3D数字孪生</title>
+
+<link rel="stylesheet" href="./css/index.css">
+<script type="importmap">
+{
+    "imports": {
+      "three": "/vendor/three.module.js",
+      "three/addons/": "/vendor/addons/"
+    }
+  }
+</script>
+</head>
+
+<body>
+
+
+<div id="app">
+
+<div id="scene"></div>
+
+<!-- ======================================================
+     TOP
+====================================================== -->
+
+<div class="topbar">
+
+    <div class="brand">
+
+        <div class="brand-logo">
+            🌿
+        </div>
+
+        <div>
+            <div class="brand-name">
+                智慧牧场 · 3D数字孪生
+            </div>
+
+            <div class="brand-sub">
+                SMART RANCH DIGITAL TWIN
+            </div>
+        </div>
+
+    </div>
+
+
+    <div class="top-right">
+
+        <div class="status-pill">
+            <span class="status-dot"></span>
+            系统正常
+        </div>
+
+        <div class="status-pill">
+            ⚡ 126.8 kW
+        </div>
+
+        <div class="status-pill">
+            💧 72%
+        </div>
+
+        <div class="status-pill">
+            2026 / 09 / 28&nbsp;&nbsp;23:04
+        </div>
+
+    </div>
+
+</div>
+
+
+<!-- ======================================================
+     LEFT
+====================================================== -->
+
+<div class="left-panel">
+
+    <div class="panel overview">
+
+        <div class="panel-title">
+            牧场实时概览
+        </div>
+
+        <div class="area">
+            98.6
+            <small>亩</small>
+        </div>
+
+        <div class="overview-grid">
+
+            <div class="stat">
+                <div class="stat-label">
+                    牲畜数量
+                </div>
+
+                <div class="stat-value green">
+                    286
+                </div>
+            </div>
+
+            <div class="stat">
+                <div class="stat-label">
+                    在线设备
+                </div>
+
+                <div class="stat-value blue">
+                    48 / 51
+                </div>
+            </div>
+
+            <div class="stat">
+                <div class="stat-label">
+                    今日用水
+                </div>
+
+                <div class="stat-value blue">
+                    18.6 m³
+                </div>
+            </div>
+
+            <div class="stat">
+                <div class="stat-label">
+                    今日用电
+                </div>
+
+                <div class="stat-value yellow">
+                    684 kWh
+                </div>
+            </div>
+
+        </div>
+
+    </div>
+
+
+    <div class="panel system-list">
+
+        <button
+            class="system-btn"
+            onclick="openDrawer('board')">
+
+            <div class="system-icon">
+                🎛
+            </div>
+
+            <div class="system-main">
+
+                <div class="system-name">
+                    开发板
+                </div>
+
+                <div class="system-state" id="menuBoard">
+                    ESP32 · 5 个预设
+                </div>
+
+            </div>
+
+            <div class="system-arrow">
+                ›
+            </div>
+
+        </button>
+
+
+        <button
+            class="system-btn"
+            onclick="openDrawer('power')">
+
+            <div class="system-icon">
+                ⚡
+            </div>
+
+            <div class="system-main">
+
+                <div class="system-name">
+                    电路系统
+                </div>
+
+                <div class="system-state" id="menuPower">
+                    配电未接管
+                </div>
+
+            </div>
+
+            <div class="system-arrow">
+                ›
+            </div>
+
+        </button>
+
+
+        <button
+            class="system-btn"
+            onclick="openDrawer('drone')">
+
+            <div class="system-icon">
+                🛸
+            </div>
+
+            <div class="system-main">
+
+                <div class="system-name">
+                    无人机巡检
+                </div>
+
+                <div class="system-state" id="menuDrone">
+                    8 个航点 · 待命
+                </div>
+
+            </div>
+
+            <div class="system-arrow">
+                ›
+            </div>
+
+        </button>
+
+
+        <button
+            class="system-btn"
+            onclick="openDrawer('water')">
+
+            <div class="system-icon">
+                💧
+            </div>
+
+            <div class="system-main">
+
+                <div class="system-name">
+                    水利系统
+                </div>
+
+                <div class="system-state" id="menuWater">
+                    水压 -- MPa
+                </div>
+
+            </div>
+
+            <div class="system-arrow">
+                ›
+            </div>
+
+        </button>
+
+
+        <button
+            class="system-btn"
+            onclick="openDrawer('fire')">
+
+            <div class="system-icon">
+                🔥
+            </div>
+
+            <div class="system-main">
+
+                <div class="system-name">
+                    消防系统
+                </div>
+
+                <div class="system-state" id="menuFire">
+                    消防未接管
+                </div>
+
+            </div>
+
+            <div class="system-arrow">
+                ›
+            </div>
+
+        </button>
+
+
+        <!-- The show is a screen of its own, so it gets a door in the chrome rather
+             than hiding inside a subsystem drawer. -->
+        <button
+            class="system-btn"
+            onclick="toggleShowPage()">
+
+            <div class="system-icon">
+                ✦
+            </div>
+
+            <div class="system-main">
+
+                <div class="system-name">
+                    编队表演
+                </div>
+
+                <div class="system-state" id="menuShow">
+                    24 架 · 3 幕 · 未校验
+                </div>
+
+            </div>
+
+            <div class="system-arrow">
+                ›
+            </div>
+
+        </button>
+
+    </div>
+
+</div>
+
+
+<!-- ======================================================
+     DAY NIGHT
+====================================================== -->
+
+<div class="time-switch">
+
+    <button
+        class="time-btn"
+        id="dayBtn"
+        onclick="setTimeMode('day')">
+        ☀ 白天
+    </button>
+
+    <button
+        class="time-btn active"
+        id="nightBtn"
+        onclick="setTimeMode('night')">
+        ☾ 夜晚
+    </button>
+
+</div>
+
+
+<!-- ======================================================
+     BUILDING INFO
+====================================================== -->
+
+<div
+    class="building-info"
+    id="buildingInfo">
+
+    <div>
+
+        <div
+            class="building-info-name"
+            id="buildingName">
+            牧场主屋
+        </div>
+
+        <div
+            class="building-info-desc"
+            id="buildingDesc">
+            点击查看建筑设备
+        </div>
+
+    </div>
+
+    <button
+        class="building-info-open"
+        onclick="openSelectedBuilding()">
+        查看
+    </button>
+
+</div>
+
+
+<!-- ======================================================
+     BOTTOM
+====================================================== -->
+
+<div class="bottom">
+
+    <button
+        class="bottom-btn"
+        onclick="resetCamera()">
+        ⌖ 总览
+    </button>
+
+    <button
+        class="bottom-btn"
+        onclick="focusBuilding('house')">
+        🏠 主屋
+    </button>
+
+    <button
+        class="bottom-btn"
+        onclick="focusBuilding('barn')">
+        🐄 牛舍
+    </button>
+
+    <button
+        class="bottom-btn"
+        onclick="toggleStreetLights()">
+        💡 路灯
+    </button>
+
+    <button
+        class="bottom-btn"
+        onclick="toggleHouseLights()">
+        🏠 室内灯
+    </button>
+
+</div>
+
+
+<!-- ======================================================
+     MINI MAP
+====================================================== -->
+
+<div class="minimap">
+
+    <div class="minimap-title">
+        RANCH MAP
+    </div>
+
+    <div class="map">
+
+        <div class="map-road-h"></div>
+        <div class="map-road-v"></div>
+
+        <div class="map-building a"></div>
+        <div class="map-building b"></div>
+        <div class="map-building c"></div>
+
+        <div class="map-water"></div>
+
+        <div class="map-player"></div>
+
+    </div>
+
+</div>
+
+
+<!-- ======================================================
+     DRAWER
+====================================================== -->
+
+<div
+    class="drawer"
+    id="drawer">
+
+    <div class="drawer-head">
+
+        <div>
+
+            <div
+                class="drawer-title"
+                id="drawerTitle">
+                ⚡ 电路系统
+            </div>
+
+            <div
+                class="drawer-subtitle"
+                id="drawerSubtitle">
+                POWER MANAGEMENT
+            </div>
+
+        </div>
+
+        <button
+            class="close"
+            onclick="closeDrawer()">
+            ×
+        </button>
+
+    </div>
+
+
+    <div
+        class="drawer-body"
+        id="drawerBody">
+    </div>
+
+</div>
+
+
+<div
+    class="toast"
+    id="toast">
+</div>
+
+</div>
+
+<script type="module" src="./js/init.js"></script>
+
+</body>
+</html>

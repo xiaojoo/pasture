@@ -1,0 +1,167 @@
+/* =========================================================
+   LEFT PANEL
+========================================================= */
+
+.left-panel{
+    position:absolute;
+    z-index:8;
+
+    left:20px;
+    top:104px;
+
+    width:255px;
+
+    display:flex;
+    flex-direction:column;
+    gap:10px;
+}
+
+.panel{
+    border-radius:12px;
+
+    background:
+        linear-gradient(
+            145deg,
+            rgba(9,26,17,.91),
+            rgba(5,16,10,.82)
+        );
+
+    border:1px solid rgba(255,255,255,.075);
+
+    box-shadow:
+        0 20px 50px rgba(0,0,0,.25);
+
+    backdrop-filter:blur(15px);
+}
+
+.overview{
+    padding:16px;
+}
+
+.panel-title{
+    color:#708a7b;
+    font-size:10px;
+    letter-spacing:.5px;
+    margin-bottom:12px;
+}
+
+.area{
+    font-size:28px;
+    line-height:1;
+
+    font-weight:700;
+}
+
+.area small{
+    font-size:11px;
+    color:#718579;
+    font-weight:400;
+}
+
+.overview-grid{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:7px;
+
+    margin-top:15px;
+}
+
+.stat{
+    padding:10px;
+
+    border-radius:8px;
+
+    background:rgba(255,255,255,.035);
+}
+
+.stat-label{
+    font-size:9px;
+    color:#6e8578;
+}
+
+.stat-value{
+    margin-top:5px;
+
+    font-size:14px;
+    font-weight:600;
+}
+
+.green{
+    color:#5ce69b;
+}
+
+.blue{
+    color:#5ec9ff;
+}
+
+.yellow{
+    color:#ffc85d;
+}
+
+.system-list{
+    padding:8px;
+}
+
+.system-btn{
+    width:100%;
+
+    border:0;
+    background:transparent;
+
+    display:flex;
+    align-items:center;
+
+    padding:10px;
+
+    border-radius:9px;
+
+    color:#d5e4dc;
+
+    text-align:left;
+
+    cursor:pointer;
+
+    transition:.2s;
+}
+
+.system-btn:hover{
+    background:rgba(255,255,255,.055);
+}
+
+.system-icon{
+    width:34px;
+    height:34px;
+
+    display:flex;
+    align-items:center;
+    justify-content:center;
+
+    margin-right:10px;
+
+    border-radius:8px;
+
+    background:rgba(255,255,255,.05);
+
+    font-size:16px;
+}
+
+.system-main{
+    flex:1;
+}
+
+.system-name{
+    font-size:11px;
+    font-weight:600;
+}
+
+.system-state{
+    margin-top:3px;
+
+    font-size:9px;
+    color:#668073;
+}
+
+.system-arrow{
+    color:#587263;
+    font-size:18px;
+}
