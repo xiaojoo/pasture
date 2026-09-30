@@ -284,6 +284,85 @@ function upstreamGet(pathname) {
   });
 }
 
+// A card in the editor's starter picker asks for `/examples-thumbs/starter-<board>.webp`.
+// Velxio builds that name from the board kind when a board has no example project to
+// borrow a screenshot from -- and for `arduino-nano-esp32` the file is not in the image,
+// so the card costs two 404s (the img, then the component's own retry) before its SVG
+// fallback paints. The bytes it wants exist: the picker's other source is
+// `/component-svgs/<board>.svg`, which is exactly what that fallback renders. Serving
+// them on the first request takes the 404s out of the console and shows the same picture
+// one round trip earlier.
+//
+// Only a starter thumbnail the simulator really does not have is touched. The upstream
+// request is made first and its bytes are passed through untouched when it answers 200:
+// `starter-xiao-esp32-s3.webp` and friends are real screenshots in the image, and
+// swapping those for a drawing would be a downgrade dressed up as a fix. Every other
+// path under `/examples-thumbs/` is left to the ordinary proxy, so a genuinely missing
+// asset still fails the way it should.
+const STARTER_THUMB = /^\/examples-thumbs\/starter-([a-z0-9][a-z0-9-]{0,47})\.webp$/;
+
+// One transparent pixel, for a starter board that has no component SVG either. The
+// browser is asking for an image; answering with one keeps the console clean and leaves
+// the card's own `onError` path for real failures.
+const BLANK_SVG = Buffer.from(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1" viewBox="0 0 1 1"></svg>',
+);
+
+const starterThumbCache = new Map();
+
+// Returns true when the request was a starter thumbnail and has been answered.
+async function starterThumb(req, res, url) {
+  if (req.method !== 'GET') return false;
+  const m = STARTER_THUMB.exec(url);
+  if (!m) return false;
+
+  const board = m[1];
+  const cached = starterThumbCache.get(board);
+  if (cached) { answer(cached.body, cached.type); return true; }
+
+  // Is the thumbnail actually missing? Only a definitive 404 is treated as missing: a
+  // 500 or a timeout means the simulator is unwell, and answering those with a
+  // substitute picture would hide the outage behind a card that looks fine.
+  let upstream;
+  try {
+    upstream = await upstreamGet(url);
+  } catch (e) {
+    console.log(`[thumbs] ${url}: 上游不可达（${e.message}），交给普通代理去报错`);
+    return false;
+  }
+  if (upstream.status !== 404) {
+    const type = upstream.type || 'image/webp';
+    if (upstream.status === 200) starterThumbCache.set(board, { body: upstream.body, type });
+    answer(upstream.body, type);
+    return true;
+  }
+
+  // 404: the same board's component drawing stands in for the screenshot. If that is
+  // missing too -- a starter board this image has never heard of -- the transparent
+  // pixel keeps the request an image instead of another 404.
+  let body = BLANK_SVG;
+  let type = 'image/svg+xml';
+  try {
+    const svg = await upstreamGet(`/component-svgs/${board}.svg`);
+    if (svg.status === 200 && /svg/i.test(svg.type || '')) {
+      body = svg.body;
+      console.log(`[thumbs] ${url}: 镜像里没有这张缩略图，改用 /component-svgs/${board}.svg 顶替`);
+    } else {
+      console.log(`[thumbs] ${url}: 缩略图和元件图都没有，回一张透明图`);
+    }
+  } catch {
+    console.log(`[thumbs] ${url}: 缩略图缺、元件图也取不到，回一张透明图`);
+  }
+  starterThumbCache.set(board, { body, type });
+  answer(body, type);
+  return true;
+
+  function answer(bytes, contentType) {
+    res.writeHead(200, { 'content-type': contentType || 'image/svg+xml', 'cache-control': 'no-store' });
+    res.end(bytes);
+  }
+}
+
 // Returns true when the request was the entry bundle and has been answered.
 async function vendorAsset(req, res, url) {
   // The wire code lives in the entry bundle; every other chunk is proxied untouched.
@@ -405,6 +484,9 @@ const server = http.createServer(async (req, res) => {
   console.log('[SERVER] URL:', url);
   console.log('[SERVER] checking api()...');
   if (api(req, res)) return true;
+  // Answered before the proxy, and before the asset passes below: these are images the
+  // editor asks the simulator for, and the simulator's own answer is a 404.
+  if (await starterThumb(req, res, url)) return;
   // A path this server serves itself is never asked of Velxio. The editor's HTML pass
   // below forwards *any* navigation upstream, and Velxio's SPA answers 200 with its own
   // shell for paths it does not know -- which is how a local page used to be replaced by
