@@ -22,6 +22,7 @@
 namespace ranch {
 void appSetup();
 void appLoop();
+void simCommand(const char*);
 }  // namespace ranch
 
 using namespace ranch;
@@ -220,6 +221,35 @@ int main() {
     CHECK(r4.find("clock", clock), "and it says the clock is missing");
     CHECK(r4.find("house", house), "the house line is still under its own control");
 
+
+    // --- the console answers: one verb it took, one it never heard of ---------
+    std::printf("console answers: the valves answer\n");
+    appSetup();
+    simCommand("resume");
+    runFor(2);
+    CHECK(std::strstr(telemetryLastFrame(), ",ack=ok:resume") != nullptr,
+          "the frame names the command this board carried out");
+    simCommand("nonesuch=1");
+    runFor(2);
+    CHECK(std::strstr(telemetryLastFrame(), ",ack=no:nonesuch") != nullptr,
+          "and says so when it does not know the verb");
+    simCommand(" period=120");        // the same verb with the padding a terminal adds
+    runFor(2);
+    CHECK(std::strstr(telemetryLastFrame(), ",ack=ok:period=120") != nullptr,
+          "a padded verb is the same command");
+
+    // --- the programme is the board's, not the page's ------------------------
+    CHECK(std::strstr(telemetryLastFrame(), ",lim=per") != nullptr,
+          "the frame carries the programme this board is running");
+    simCommand("period=90");
+    runFor(2);
+    CHECK(std::strstr(telemetryLastFrame(), "per90/") != nullptr,
+          "a changed period reads back from the board (its default is 3600)");
+    simCommand("period=30");        // below the 60 s this board accepts
+    runFor(2);
+    CHECK(std::strstr(telemetryLastFrame(), "per30/") == nullptr &&
+          std::strstr(telemetryLastFrame(), "per90/") != nullptr,
+          "and a period it refused did not move");
     std::printf("\n%d checks, %d failures\n", checks, fails);
     return fails ? 1 : 0;
 }

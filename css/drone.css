@@ -13,6 +13,12 @@
     color:#6ee7a0;
 }
 
+/* Who has the sticks. Same rhythm as the alert line it sits beside; the amber
+   one is a refusal, which is the state a pilot needs to notice. */
+.dr-stick{color:#8fa3b8;}
+.dr-stick.dr-live{color:#6ee7a0;}
+.dr-stick.dr-warn{color:#ffcf6b;}
+
 .esp-chips b.dr-warn{
     color:#ff8b6b;
 }

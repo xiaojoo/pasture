@@ -45,6 +45,9 @@ void telemetrySetLink(const char* host, uint16_t port, const char* client_id);
 
 using CommandHandler = void (*)(const char* payload, size_t len);
 void telemetrySetCommandHandler(CommandHandler fn);
+// The board's answer to the last line typed at its console: published as
+// `ack=ok:<verb>` / `ack=no:<verb>` for a few seconds.
+void telemetryNoteAck(const char* verb, const char* value, bool ok);
 
 void telemetryPublish(const LightReport& r);
 void telemetryEvent(const char* kind);

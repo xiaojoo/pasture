@@ -138,6 +138,22 @@ void paramsPersist() {
     nvSetF32("pf", site_pf);
 }
 
+// What this cabinet will actually trip on, as one self-describing string. The names
+// travel attached to their numbers on purpose: a packed list re-ordered by the next
+// person to touch it would publish a plausible frame with the wrong thresholds, and
+// nothing downstream could tell.
+void publishLimits() {
+    char s[128];
+    std::snprintf(s, sizeof(s),
+                  "uv%.2f/ov%.2f/rcdt%.0f/tmpt%.0f/deb%.1f/shed%.0f/nomv%.0f/rated%.0f/pf%.2f",
+                  static_cast<double>(limits.under_v_pct), static_cast<double>(limits.over_v_pct),
+                  static_cast<double>(limits.rcd_trip_ma), static_cast<double>(limits.temp_trip_c),
+                  static_cast<double>(limits.debounce_s), static_cast<double>(limits.shed_load_pct),
+                  static_cast<double>(nominal_v), static_cast<double>(rated_kva),
+                  static_cast<double>(site_pf));
+    telemetrySetLimits(s);
+}
+
 void clockUpdate() {
     uint16_t y = 0;
     uint8_t mo = 0, dm = 0;
@@ -174,11 +190,17 @@ void onGroundCommand(const char* payload, size_t len) {
     if (!payload || len == 0) return;
     char verb[20], value[32];
     size_t i = 0;
-    while (i < len && i < sizeof(verb) - 1 && payload[i] != '=' && payload[i] != '\n') {
-        verb[i] = payload[i];
-        ++i;
+    // A typed line often arrives padded: a terminal adds a space, a paste adds one.
+    // Skipping the padding is what makes `street=1` and ` street=1` one command.
+    while (i < len && (payload[i] == ' ' || payload[i] == '\t')) ++i;
+    // The read cursor and the write index are two things. With one variable doing
+    // both, a padded line left verb[0] uninitialised and the verb was compared
+    // against garbage -- which is how a verb this board knows came out refused.
+    size_t j = 0;
+    while (i < len && j < sizeof(verb) - 1 && payload[i] != '=' && payload[i] != '\n') {
+        verb[j++] = payload[i++];
     }
-    verb[i] = '\0';
+    verb[j] = '\0';
     size_t n = 0;
     if (i < len && payload[i] == '=') {
         ++i;
@@ -238,9 +260,10 @@ void onGroundCommand(const char* payload, size_t len) {
         else if (std::strcmp(verb, "pf") == 0 && f > 0.2f && f <= 1.0f) site_pf = f;
         else taken = false;
     }
-    if (taken) paramsPersist();
+    if (taken) { paramsPersist(); publishLimits(); }
     // A command that was not recognised is reported rather than dropped: the
     // alternative is an operator believing the board has ignored them.
+    telemetryNoteAck(verb, value, taken);
     telemetryEvent(taken ? "cmd" : "cmd-unknown", verb);
 }
 
@@ -393,6 +416,31 @@ void controlTask(void*) {
 // because the test links against it.
 #if defined(RANCH_SIM)
 void simCommand(const char* cmd) { onGroundCommand(cmd, std::strlen(cmd)); }
+
+#if defined(ARDUINO)
+// The console's input, as a command door: in the simulation there is no broker, so
+// this is the only way the page can reach this board at all. Same parser the broker
+// calls, so a verb the bench takes and a verb the console takes cannot drift apart.
+// ARDUINO only: the host sandbox drives simCommand from its own test, and a stdin
+// reader there would make a unit test wait on a terminal.
+void consoleCommandPump() {
+    static char line[40];
+    static size_t n = 0;
+    while (Serial.available() > 0) {
+        const int c = Serial.read();
+        if (c < 0) break;
+        if (c == '\r') continue;
+        if (c == '\n') {
+            line[n] = '\0';
+            if (n) simCommand(line);
+            n = 0;
+            continue;
+        }
+        if (n < sizeof(line) - 1) line[n++] = static_cast<char>(c);
+        else n = 0;
+    }
+}
+#endif
 #endif
 
 void appSetup() {
@@ -403,6 +451,7 @@ void appSetup() {
     feedersInit();
     telemetryInit();
     paramsLoad();
+    publishLimits();
     meterInit(site_pf, nominal_v, rated_kva);
     meterLoad();
     gridReset(gstate);
@@ -435,6 +484,9 @@ void appSetup() {
 
 void appLoop() {
 #if defined(RANCH_SIM)
+#if defined(ARDUINO)
+    consoleCommandPump();
+#endif
     halSimPump();
     runJobs();
     halDelayMs(20);

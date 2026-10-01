@@ -19,6 +19,14 @@ char broker_client[24] = "light";
 uint16_t broker_port = MQTT_PORT;
 CommandHandler cmd_fn = nullptr;
 
+// The board's answer to the last line anybody typed at it, kept for a few seconds so
+// a dashboard polling at 2 Hz cannot miss it. `ack=ok:street` and `ack=no:street`
+// look identical on the console and on a wire; only this field tells them apart.
+constexpr uint32_t ACK_HOLD_MS = 6000;
+char ack_verb[40] = "";
+bool ack_ok = false;
+uint32_t ack_ms = 0;
+
 // Minutes past local midnight as hh:mm, which is what a person reading the
 // dashboard wants; the float version is what the policy works in.
 void hhmm(char (&dst)[12], float minutes) {
@@ -92,6 +100,10 @@ bool brokerUp() { return broker.connected(); }
 void telemetryInit() {
     up = UplinkStats{};
     frame[0] = '\0';
+    // A board restart must not come back still answering somebody's last command.
+    ack_verb[0] = '\0';
+    ack_ok = false;
+    ack_ms = 0;
 }
 
 void telemetrySetLink(const char* host, uint16_t port, const char* client_id) {
@@ -102,6 +114,15 @@ void telemetrySetLink(const char* host, uint16_t port, const char* client_id) {
 }
 
 void telemetrySetCommandHandler(CommandHandler fn) { cmd_fn = fn; }
+
+void telemetryNoteAck(const char* verb, const char* value, bool ok) {
+    // The verb alone cannot answer "what value did the board keep"; an operator
+    // changing a trip threshold needs the number back, not just a yes.
+    if (value && *value) std::snprintf(ack_verb, sizeof(ack_verb), "%s=%s", verb, value);
+    else std::snprintf(ack_verb, sizeof(ack_verb), "%s", verb);
+    ack_ok = ok;
+    ack_ms = halMillis();
+}
 
 void telemetryPublish(const LightReport& r) {
     char rise[12], set[12];
@@ -130,6 +151,14 @@ void telemetryPublish(const LightReport& r) {
     else if (r.fault.barn_over) w.add("fault", "OVERCURRENT");
     else if (r.fault.driver_contact) w.add("fault", "DRIVER");
     w.add("h_street", static_cast<int>(r.burn_tenths[LAMP_STREET] / 36000u));
+    // The answer to the last command, for as long as it is still the answer. A page
+    // that only sees the lamps move cannot tell "the board did that" from "the page
+    // did that to itself", which is the difference between a control and a painting.
+    if (*ack_verb && static_cast<int32_t>(halMillis() - ack_ms) < static_cast<int32_t>(ACK_HOLD_MS)) {
+        char ack[56];
+        std::snprintf(ack, sizeof(ack), "%s:%s", ack_ok ? "ok" : "no", ack_verb);
+        w.add("ack", ack);
+    }
     w.endLine();
 
     if (w.overflow()) {

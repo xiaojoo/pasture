@@ -1,6 +1,6 @@
 // GENERATED FILE - do not edit, edit the project and re-run:
 //   node tools/bundle.mjs
-// Source: firmware/power + firmware/lib  (14 files, 91.0 KB before bundling)
+// Source: firmware/power + firmware/lib  (14 files, 95.7 KB before bundling)
 // The simulated grid in hal_sim.cpp sags under the loads the board switches.
 //
 // Build the same code for hardware with:  pio run -d firmware/power
@@ -1483,6 +1483,12 @@ void telemetrySetLink(const char* host, uint16_t port, const char* client_id);
 
 using CommandHandler = void (*)(const char* payload, size_t len);
 void telemetrySetCommandHandler(CommandHandler fn);
+// Published as `ack=ok:<verb>` / `ack=no:<verb>` for a few seconds after a command.
+void telemetryNoteAck(const char* verb, const char* value, bool ok);
+// The thresholds this board is actually running, as one self-describing string
+// (`uv0.85/ov1.10/...`), published as `lim=`. Names travel with the numbers because a
+// packed list can be mis-ordered without anything noticing.
+void telemetrySetLimits(const char* text);
 
 void telemetryPublish(const PowerReport& r);
 
@@ -1506,7 +1512,10 @@ const char* telemetryLastFrame();
 namespace ranch {
 namespace {
 
-constexpr size_t FRAME_CAP = 256;
+// 256 was enough before `lim=`; nine named thresholds plus a transient `ack=` are not,
+// and a frame that overflows is dropped whole -- which would silently lose the
+// readings, not just the settings. Headroom is measured in the bundle run.
+constexpr size_t FRAME_CAP = 336;
 
 UplinkStats up{};
 char frame[FRAME_CAP];
@@ -1514,6 +1523,14 @@ char broker_host[64] = "";
 char broker_client[24] = "power";
 uint16_t broker_port = MQTT_PORT;
 CommandHandler cmd_fn = nullptr;
+// The board's answer to the last line typed at its console, kept for a few seconds
+// so a dashboard polling at 2 Hz cannot miss it.
+constexpr uint32_t ACK_HOLD_MS = 6000;
+char ack_verb[40] = "";
+bool ack_ok = false;
+uint32_t ack_ms = 0;
+// The thresholds as this board holds them, handed over already formatted.
+char lim[120] = "";
 
 }  // namespace
 
@@ -1573,6 +1590,12 @@ bool brokerUp() { return broker.connected(); }
 void telemetryInit() {
     up = UplinkStats{};
     frame[0] = '\0';
+    // A restart must not come back still answering the last command.
+    ack_verb[0] = '\0';
+    ack_ms = 0;
+    lim[0] = '\0';   // appSetup hands the real thresholds over right after this
+    lim[0] = '\0';   // appSetup hands the real thresholds over right after this
+    lim[0] = '\0';   // appSetup hands the real thresholds over right after this
 }
 
 void telemetrySetLink(const char* host, uint16_t port, const char* client_id) {
@@ -1583,6 +1606,18 @@ void telemetrySetLink(const char* host, uint16_t port, const char* client_id) {
 }
 
 void telemetrySetCommandHandler(CommandHandler fn) { cmd_fn = fn; }
+void telemetrySetLimits(const char* text) {
+    std::snprintf(lim, sizeof(lim), "%s", text ? text : "");
+}
+
+void telemetryNoteAck(const char* verb, const char* value, bool ok) {
+    // The verb alone cannot answer "what value did the board keep"; an operator
+    // changing a trip threshold needs the number back, not just a yes.
+    if (value && *value) std::snprintf(ack_verb, sizeof(ack_verb), "%s=%s", verb, value);
+    else std::snprintf(ack_verb, sizeof(ack_verb), "%s", verb);
+    ack_ok = ok;
+    ack_ms = halMillis();
+}
 
 void telemetryPublish(const PowerReport& r) {
     const PowerRead& d = r.m.read;
@@ -1623,6 +1658,15 @@ void telemetryPublish(const PowerReport& r) {
     if (r.fo.trip_latched) w.add("lock", static_cast<int>(r.fo.lockout_s));
     if (!r.clock_valid) w.add("clock", "unset");
     if (r.reason && *r.reason) w.add("why", r.reason);
+    if (*lim) w.add("lim", lim);
+    // The board's answer to the last line typed at it: a dashboard that only sees
+    // valves and relays cannot tell "the board did that" from "the page did it to
+    // itself", which is the difference between a control and a painting.
+    if (*ack_verb && static_cast<int32_t>(halMillis() - ack_ms) < static_cast<int32_t>(ACK_HOLD_MS)) {
+        char ack[56];
+        std::snprintf(ack, sizeof(ack), "%s:%s", ack_ok ? "ok" : "no", ack_verb);
+        w.add("ack", ack);
+    }
     w.endLine();
 
     if (w.overflow()) {
@@ -2279,6 +2323,22 @@ void paramsPersist() {
     nvSetF32("pf", site_pf);
 }
 
+// What this cabinet will actually trip on, as one self-describing string. The names
+// travel attached to their numbers on purpose: a packed list re-ordered by the next
+// person to touch it would publish a plausible frame with the wrong thresholds, and
+// nothing downstream could tell.
+void publishLimits() {
+    char s[128];
+    std::snprintf(s, sizeof(s),
+                  "uv%.2f/ov%.2f/rcdt%.0f/tmpt%.0f/deb%.1f/shed%.0f/nomv%.0f/rated%.0f/pf%.2f",
+                  static_cast<double>(limits.under_v_pct), static_cast<double>(limits.over_v_pct),
+                  static_cast<double>(limits.rcd_trip_ma), static_cast<double>(limits.temp_trip_c),
+                  static_cast<double>(limits.debounce_s), static_cast<double>(limits.shed_load_pct),
+                  static_cast<double>(nominal_v), static_cast<double>(rated_kva),
+                  static_cast<double>(site_pf));
+    telemetrySetLimits(s);
+}
+
 void clockUpdate() {
     uint16_t y = 0;
     uint8_t mo = 0, dm = 0;
@@ -2315,11 +2375,17 @@ void onGroundCommand(const char* payload, size_t len) {
     if (!payload || len == 0) return;
     char verb[20], value[32];
     size_t i = 0;
-    while (i < len && i < sizeof(verb) - 1 && payload[i] != '=' && payload[i] != '\n') {
-        verb[i] = payload[i];
-        ++i;
+    // A typed line often arrives padded: a terminal adds a space, a paste adds one.
+    // Skipping the padding is what makes `street=1` and ` street=1` one command.
+    while (i < len && (payload[i] == ' ' || payload[i] == '\t')) ++i;
+    // The read cursor and the write index are two things. With one variable doing
+    // both, a padded line left verb[0] uninitialised and the verb was compared
+    // against garbage -- which is how a verb this board knows came out refused.
+    size_t j = 0;
+    while (i < len && j < sizeof(verb) - 1 && payload[i] != '=' && payload[i] != '\n') {
+        verb[j++] = payload[i++];
     }
-    verb[i] = '\0';
+    verb[j] = '\0';
     size_t n = 0;
     if (i < len && payload[i] == '=') {
         ++i;
@@ -2379,9 +2445,10 @@ void onGroundCommand(const char* payload, size_t len) {
         else if (std::strcmp(verb, "pf") == 0 && f > 0.2f && f <= 1.0f) site_pf = f;
         else taken = false;
     }
-    if (taken) paramsPersist();
+    if (taken) { paramsPersist(); publishLimits(); }
     // A command that was not recognised is reported rather than dropped: the
     // alternative is an operator believing the board has ignored them.
+    telemetryNoteAck(verb, value, taken);
     telemetryEvent(taken ? "cmd" : "cmd-unknown", verb);
 }
 
@@ -2534,6 +2601,31 @@ void controlTask(void*) {
 // because the test links against it.
 #if defined(RANCH_SIM)
 void simCommand(const char* cmd) { onGroundCommand(cmd, std::strlen(cmd)); }
+
+#if defined(ARDUINO)
+// The console's input, as a command door: in the simulation there is no broker, so
+// this is the only way the page can reach this board at all. Same parser the broker
+// calls, so a verb the bench takes and a verb the console takes cannot drift apart.
+// ARDUINO only: the host sandbox drives simCommand from its own test, and a stdin
+// reader there would make a unit test wait on a terminal.
+void consoleCommandPump() {
+    static char line[40];
+    static size_t n = 0;
+    while (Serial.available() > 0) {
+        const int c = Serial.read();
+        if (c < 0) break;
+        if (c == '\r') continue;
+        if (c == '\n') {
+            line[n] = '\0';
+            if (n) simCommand(line);
+            n = 0;
+            continue;
+        }
+        if (n < sizeof(line) - 1) line[n++] = static_cast<char>(c);
+        else n = 0;
+    }
+}
+#endif
 #endif
 
 void appSetup() {
@@ -2544,6 +2636,7 @@ void appSetup() {
     feedersInit();
     telemetryInit();
     paramsLoad();
+    publishLimits();
     meterInit(site_pf, nominal_v, rated_kva);
     meterLoad();
     gridReset(gstate);
@@ -2576,6 +2669,9 @@ void appSetup() {
 
 void appLoop() {
 #if defined(RANCH_SIM)
+#if defined(ARDUINO)
+    consoleCommandPump();
+#endif
     halSimPump();
     runJobs();
     halDelayMs(20);

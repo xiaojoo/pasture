@@ -125,6 +125,17 @@ void paramsPersist() {
     nvSetI32("b_olo", bands.open_lo_mv);
 }
 
+// The timers this panel is running, as one self-describing string. Of these only the
+// alarm-confirm window can be set from the ground (`confirm=`); the rest are published
+// so a dashboard can say what a silence actually lasts instead of guessing.
+void publishLimits() {
+    char s[64];
+    std::snprintf(s, sizeof(s), "cfm%u/sil%u/tst%u/fz%u",
+                  static_cast<unsigned>(lim.confirm_s), static_cast<unsigned>(lim.silence_s),
+                  static_cast<unsigned>(lim.test_period_s), static_cast<unsigned>(lim.fault_zones_max));
+    telemetrySetLimits(s);
+}
+
 void clockUpdate() {
     uint16_t y = 0;
     uint8_t mo = 0, dm = 0;
@@ -166,11 +177,17 @@ void onGroundCommand(const char* payload, size_t len) {
     if (!payload || len == 0) return;
     char verb[20], value[32];
     size_t i = 0;
-    while (i < len && i < sizeof(verb) - 1 && payload[i] != '=' && payload[i] != '\n') {
-        verb[i] = payload[i];
-        ++i;
+    // A typed line often arrives padded: a terminal adds a space, a paste adds one.
+    // Skipping the padding is what makes `street=1` and ` street=1` one command.
+    while (i < len && (payload[i] == ' ' || payload[i] == '\t')) ++i;
+    // The read cursor and the write index are two things. With one variable doing
+    // both, a padded line left verb[0] uninitialised and the verb was compared
+    // against garbage -- which is how a verb this board knows came out refused.
+    size_t j = 0;
+    while (i < len && j < sizeof(verb) - 1 && payload[i] != '=' && payload[i] != '\n') {
+        verb[j++] = payload[i++];
     }
-    verb[i] = '\0';
+    verb[j] = '\0';
     size_t n = 0;
     if (i < len && payload[i] == '=') {
         ++i;
@@ -194,12 +211,14 @@ void onGroundCommand(const char* payload, size_t len) {
         if (v >= 5 && v <= 300) {
             lim.confirm_s = static_cast<uint16_t>(v);
             paramsPersist();
+            publishLimits();
         } else {
             taken = false;
         }
     } else {
         taken = false;
     }
+    telemetryNoteAck(verb, value, taken);
     telemetryEvent(taken ? "cmd" : "cmd-unknown", verb);
 }
 
@@ -305,6 +324,31 @@ void simLimits(uint16_t confirm_s, uint16_t silence_s, uint16_t test_period_s) {
     lim.test_period_s = test_period_s;
     fstate.next_test_s = test_period_s;
 }
+
+#if defined(ARDUINO)
+// The console's input, as a command door: in the simulation there is no broker, so
+// this is the only way the page can reach this board at all. Same parser the broker
+// calls, so a verb the bench takes and a verb the console takes cannot drift apart.
+// ARDUINO only: the host sandbox drives simCommand from its own test, and a stdin
+// reader there would make a unit test wait on a terminal.
+void consoleCommandPump() {
+    static char line[40];
+    static size_t n = 0;
+    while (Serial.available() > 0) {
+        const int c = Serial.read();
+        if (c < 0) break;
+        if (c == '\r') continue;
+        if (c == '\n') {
+            line[n] = '\0';
+            if (n) simCommand(line);
+            n = 0;
+            continue;
+        }
+        if (n < sizeof(line) - 1) line[n++] = static_cast<char>(c);
+        else n = 0;
+    }
+}
+#endif
 #endif
 
 void appSetup() {
@@ -315,6 +359,7 @@ void appSetup() {
     panelInit();
     telemetryInit();
     paramsLoad();
+    publishLimits();
     fireReset(fstate);
     last_d = FireDecision{};
     last_d.level = FireLevel::Normal;
@@ -347,6 +392,9 @@ void appSetup() {
 
 void appLoop() {
 #if defined(RANCH_SIM)
+#if defined(ARDUINO)
+    consoleCommandPump();
+#endif
     halSimPump();
     runJobs();
     halDelayMs(20);

@@ -13,6 +13,9 @@ uint8_t mavCrcExtra(uint32_t id) {
         case MSG_MISSION_COUNT:       return 142;
         case MSG_MISSION_REQUEST_INT: return 152;
         case MSG_MISSION_ITEM_INT:    return 15;
+        // 124 read out of ArduPilot's own generated dialect (pymavlink 2.4.50,
+        // common.py, RC_CHANNELS_OVERRIDE.crc_extra) rather than computed here.
+        case MSG_RC_CHANNELS_OVERRIDE: return 124;
         case MSG_MISSION_ACK:         return 153;
         case MSG_MISSION_CURRENT:     return 28;
         case MSG_MISSION_START:       return 101;
@@ -120,6 +123,17 @@ void CommandLongTx::pack(MavWriter& w) const {
     w.u8(target_sys);
     w.u8(target_comp);
     w.u8(confirmation);
+}
+
+// Wire order is chan1..chan8, target_system, target_component, chan9..chan18 --
+// the extension channels come last even though they are the same width, so this
+// is not the plain size-descending order the other messages use. Matches
+// pymavlink's native_format "<HHHHHHHHBBHHHHHHHHHH".
+void RcOverrideTx::pack(MavWriter& w) const {
+    for (int i = 0; i < 8; ++i) w.u16(chan[i]);
+    w.u8(target_sys);
+    w.u8(target_comp);
+    for (int i = 8; i < 18; ++i) w.u16(chan[i]);
 }
 
 // Wire order after the size-descending rule:

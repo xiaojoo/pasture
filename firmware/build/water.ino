@@ -1,6 +1,6 @@
 // GENERATED FILE - do not edit, edit the project and re-run:
 //   node tools/bundle.mjs
-// Source: firmware/water + firmware/lib  (15 files, 86.9 KB before bundling)
+// Source: firmware/water + firmware/lib  (15 files, 91.1 KB before bundling)
 // The simulated plumbing in hal_sim.cpp is what the valves and meters are wired to here.
 //
 // Build the same code for hardware with:  pio run -d firmware/water
@@ -1534,6 +1534,11 @@ void telemetrySetLink(const char* host, uint16_t port, const char* client_id);
 
 using CommandHandler = void (*)(const char* payload, size_t len);
 void telemetrySetCommandHandler(CommandHandler fn);
+// The programme as this board holds it (`per90/run20/en1`), published as `lim=` so a
+// settings row can show the valve controller's number rather than the page's.
+void telemetrySetLimits(const char* text);
+// Published as `ack=ok:<verb>` / `ack=no:<verb>` for a few seconds after a command.
+void telemetryNoteAck(const char* verb, const char* value, bool ok);
 
 void telemetryPublish(const WaterReport& r);
 
@@ -1558,7 +1563,8 @@ const char* telemetryLastFrame();
 namespace ranch {
 namespace {
 
-constexpr size_t FRAME_CAP = 208;
+// 256, not 208: the longest frame the sandbox publishes is 204 bytes, and a frame that overflows is dropped whole -- 4 bytes of margin is one long `why=` away from losing the board's readings.
+constexpr size_t FRAME_CAP = 256;
 
 UplinkStats up{};
 char frame[FRAME_CAP];
@@ -1566,6 +1572,16 @@ char broker_host[64] = "";
 char broker_client[24] = "water";
 uint16_t broker_port = MQTT_PORT;
 CommandHandler cmd_fn = nullptr;
+
+// The board's answer to the last line typed at its console. `ack=ok:resume` and
+// `ack=no:resume` are otherwise indistinguishable on a dashboard that only sees
+// valves, and a button that reports nothing is a button nobody can trust.
+constexpr uint32_t ACK_HOLD_MS = 6000;
+char ack_verb[40] = "";
+bool ack_ok = false;
+uint32_t ack_ms = 0;
+// The programme as this board holds it, handed over already formatted.
+char lim[48] = "";
 
 }  // namespace
 
@@ -1625,6 +1641,10 @@ bool brokerUp() { return broker.connected(); }
 void telemetryInit() {
     up = UplinkStats{};
     frame[0] = '\0';
+    // A restart must not come back still answering the last command.
+    ack_verb[0] = '\0';
+    ack_ms = 0;
+    lim[0] = '\0';   // appSetup hands the real one over right after this
 }
 
 void telemetrySetLink(const char* host, uint16_t port, const char* client_id) {
@@ -1635,6 +1655,18 @@ void telemetrySetLink(const char* host, uint16_t port, const char* client_id) {
 }
 
 void telemetrySetCommandHandler(CommandHandler fn) { cmd_fn = fn; }
+void telemetrySetLimits(const char* text) {
+    std::snprintf(lim, sizeof(lim), "%s", text ? text : "");
+}
+
+void telemetryNoteAck(const char* verb, const char* value, bool ok) {
+    // The verb alone cannot answer "what value did the board keep"; an operator
+    // changing a trip threshold needs the number back, not just a yes.
+    if (value && *value) std::snprintf(ack_verb, sizeof(ack_verb), "%s=%s", verb, value);
+    else std::snprintf(ack_verb, sizeof(ack_verb), "%s", verb);
+    ack_ok = ok;
+    ack_ms = halMillis();
+}
 
 void telemetryPublish(const WaterReport& r) {
     FrameWriter w(frame, sizeof(frame));
@@ -1658,6 +1690,15 @@ void telemetryPublish(const WaterReport& r) {
     if (!r.clock_valid) w.add("clock", "unset");
     if (r.sensor_fault) w.add("sensor", "fault");
     if (r.reason && *r.reason) w.add("why", r.reason);
+    // The board's answer to the last line typed at it: a dashboard that only sees
+    // valves and relays cannot tell "the board did that" from "the page did it to
+    // itself", which is the difference between a control and a painting.
+    if (*lim) w.add("lim", lim);
+    if (*ack_verb && static_cast<int32_t>(halMillis() - ack_ms) < static_cast<int32_t>(ACK_HOLD_MS)) {
+        char ack[56];
+        std::snprintf(ack, sizeof(ack), "%s:%s", ack_ok ? "ok" : "no", ack_verb);
+        w.add("ack", ack);
+    }
     w.endLine();
 
     if (w.overflow()) {
@@ -2289,15 +2330,31 @@ void publish() {
     telemetryPublish(r);
 }
 
+// What this board's programme actually is, as one self-describing string: a settings
+// row that shows the page's own number is not a readout of the valve controller.
+void publishLimits() {
+    char s[32];
+    std::snprintf(s, sizeof(s), "per%u/run%u/en%u",
+                  static_cast<unsigned>(prog.period_s), static_cast<unsigned>(prog.run_s),
+                  static_cast<unsigned>(prog.enabled ? 1u : 0u));
+    telemetrySetLimits(s);
+}
+
 void onGroundCommand(const char* payload, size_t len) {
     if (!payload || len == 0) return;
     char verb[20], value[32];
     size_t i = 0;
-    while (i < len && i < sizeof(verb) - 1 && payload[i] != '=' && payload[i] != '\n') {
-        verb[i] = payload[i];
-        ++i;
+    // A typed line often arrives padded: a terminal adds a space, a paste adds one.
+    // Skipping the padding is what makes `street=1` and ` street=1` one command.
+    while (i < len && (payload[i] == ' ' || payload[i] == '\t')) ++i;
+    // The read cursor and the write index are two things. With one variable doing
+    // both, a padded line left verb[0] uninitialised and the verb was compared
+    // against garbage -- which is how a verb this board knows came out refused.
+    size_t j = 0;
+    while (i < len && j < sizeof(verb) - 1 && payload[i] != '=' && payload[i] != '\n') {
+        verb[j++] = payload[i++];
     }
-    verb[i] = '\0';
+    verb[j] = '\0';
     size_t n = 0;
     if (i < len && payload[i] == '=') {
         ++i;
@@ -2354,6 +2411,8 @@ void onGroundCommand(const char* payload, size_t len) {
     }
     // A command that was not recognised is reported, not silently dropped: the
     // alternative is an operator believing the board has ignored them.
+    telemetryNoteAck(verb, value, taken);
+    publishLimits();
     telemetryEvent(taken ? "cmd" : "cmd-unknown");
 }
 
@@ -2490,6 +2549,35 @@ void controlTask(void*) {
 
 }  // namespace
 
+#if defined(RANCH_SIM)
+void simCommand(const char* cmd) { onGroundCommand(cmd, std::strlen(cmd)); }
+
+#if defined(ARDUINO)
+// The console's input, as a command door: in the simulation there is no broker, so
+// this is the only way the page can reach this board at all. Same parser the broker
+// calls, so a verb the bench takes and a verb the console takes cannot drift apart.
+// ARDUINO only: the host sandbox drives simCommand from its own test, and a stdin
+// reader there would make a unit test wait on a terminal.
+void consoleCommandPump() {
+    static char line[40];
+    static size_t n = 0;
+    while (Serial.available() > 0) {
+        const int c = Serial.read();
+        if (c < 0) break;
+        if (c == '\r') continue;
+        if (c == '\n') {
+            line[n] = '\0';
+            if (n) simCommand(line);
+            n = 0;
+            continue;
+        }
+        if (n < sizeof(line) - 1) line[n++] = static_cast<char>(c);
+        else n = 0;
+    }
+}
+#endif
+#endif
+
 void appSetup() {
     halInit();
     boot_ms = halMillis();
@@ -2513,6 +2601,7 @@ void appSetup() {
     senseInit();
     telemetryInit();
     paramsLoad();
+    publishLimits();
     valvesSetLimits(valve_limits);
     senseLoad();
     programmeInit(pstate);
@@ -2537,6 +2626,9 @@ void appSetup() {
 
 void appLoop() {
 #if defined(RANCH_SIM)
+#if defined(ARDUINO)
+    consoleCommandPump();
+#endif
     halSimPump();
     runJobs();
     halDelayMs(20);

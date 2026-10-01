@@ -31,6 +31,11 @@ void telemetrySetLink(const char* host, uint16_t port, const char* client_id);
 using CommandHandler = void (*)(const char* payload, size_t len);
 void telemetrySetCommandHandler(CommandHandler fn);
 
+// The board's answer to the last command line, published as `ack=ok:<verb>` or
+// `ack=no:<verb>` for a few seconds. Same contract as the other four boards, so one
+// page-side table can say what any of them did about a button.
+void telemetryNoteAck(const char* verb, const char* value, bool ok);
+
 void telemetryPublish(const MissionStatus& ms, const AirState& air);
 void telemetryService();               // broker keepalive + log drain
 void telemetryStats(UplinkStats& out);

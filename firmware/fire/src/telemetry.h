@@ -44,6 +44,12 @@ void telemetrySetLink(const char* host, uint16_t port, const char* client_id);
 
 using CommandHandler = void (*)(const char* payload, size_t len);
 void telemetrySetCommandHandler(CommandHandler fn);
+// Published as `ack=ok:<verb>` / `ack=no:<verb>` for a few seconds after a command.
+void telemetryNoteAck(const char* verb, const char* value, bool ok);
+// The panel's own timers as it holds them (`cfm30/sil30/tst86400`), published as
+// `lim=`. Names ride with their numbers so a reordered list cannot silently mis-pair.
+void telemetrySetLimits(const char* text);
+
 
 void telemetryPublish(const FireReport& r);
 

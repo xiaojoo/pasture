@@ -1,6 +1,6 @@
 // GENERATED FILE - do not edit, edit the project and re-run:
 //   node tools/bundle.mjs
-// Source: firmware/drone + firmware/lib  (18 files, 130.3 KB before bundling)
+// Source: firmware/drone + firmware/lib  (18 files, 147.8 KB before bundling)
 // The simulated airframe in hal_sim.cpp stands in for the flight controller and the camera.
 //
 // Build the same code for hardware with:  pio run -d firmware/drone
@@ -321,6 +321,7 @@ enum MavMsg : uint32_t {
     MSG_MISSION_ACK            = 47,
     MSG_MISSION_CURRENT        = 42,
     MSG_MISSION_START          = 23,
+    MSG_RC_CHANNELS_OVERRIDE   = 70,
     MSG_BATTERY_STATUS         = 147,
     MSG_RADIO_STATUS           = 185,
     MSG_STATUSTEXT             = 253,
@@ -483,6 +484,15 @@ struct CommandLongTx {
     void pack(MavWriter& w) const;
 };
 
+// Stick axes to the flight controller. Channels are PPM microseconds: 0 means
+// "release this channel back to the radio", UINT16_MAX (65535) means "ignore this
+// field", and a real value sits between 1000 and 2000.
+struct RcOverrideTx {
+    uint16_t chan[18];
+    uint8_t target_sys, target_comp;
+    void pack(MavWriter& w) const;
+};
+
 struct MissionItemIntTx {
     int32_t x, y;
     float z, param1, param2, param3, param4;
@@ -536,6 +546,9 @@ uint8_t mavCrcExtra(uint32_t id) {
         case MSG_MISSION_COUNT:       return 142;
         case MSG_MISSION_REQUEST_INT: return 152;
         case MSG_MISSION_ITEM_INT:    return 15;
+        // 124 read out of ArduPilot's own generated dialect (pymavlink 2.4.50,
+        // common.py, RC_CHANNELS_OVERRIDE.crc_extra) rather than computed here.
+        case MSG_RC_CHANNELS_OVERRIDE: return 124;
         case MSG_MISSION_ACK:         return 153;
         case MSG_MISSION_CURRENT:     return 28;
         case MSG_MISSION_START:       return 101;
@@ -643,6 +656,17 @@ void CommandLongTx::pack(MavWriter& w) const {
     w.u8(target_sys);
     w.u8(target_comp);
     w.u8(confirmation);
+}
+
+// Wire order is chan1..chan8, target_system, target_component, chan9..chan18 --
+// the extension channels come last even though they are the same width, so this
+// is not the plain size-descending order the other messages use. Matches
+// pymavlink's native_format "<HHHHHHHHBBHHHHHHHHHH".
+void RcOverrideTx::pack(MavWriter& w) const {
+    for (int i = 0; i < 8; ++i) w.u16(chan[i]);
+    w.u8(target_sys);
+    w.u8(target_comp);
+    for (int i = 8; i < 18; ++i) w.u16(chan[i]);
 }
 
 // Wire order after the size-descending rule:
@@ -2075,6 +2099,11 @@ struct MissionStatus {
     Action failsafe;
     char failsafe_reason[24];
     char mode[12];            // FC mode string, e.g. AUTO, RTL, LOITER
+    // Who is flying: while the ground station holds the sticks this is true, the
+    // `mode` above reads HOLD instead of the planner's phase, and `rc_why` carries
+    // the reason for the last axis line this board refused.
+    bool rc_live;
+    char rc_why[16];
 };
 
 void missionInit();
@@ -2084,13 +2113,22 @@ bool missionUpload(const Mission& m, MissionSource src);
 bool missionStartAuto();
 void missionRtl();
 void missionLand();
-void missionHold();
+// Cancel the automatic sortie and *stay* cancelled: the planner stops, the FC is held in
+// LOITER, and the sticks are live. False when there is nothing to cancel (on the pad).
+bool missionHold();
+// The way back: false unless something is actually cancelled and a mission is loaded.
+bool missionResume();
+// Stick axes from the console, "fwd,side,climb,yaw" each -1..1. Refused with a
+// reason when the aircraft is not in a state that can honour an override.
+void missionOnRc(const char* axes);
 void missionTick(uint32_t dt_ms);
 void missionStatus(MissionStatus& out);
 
 // Ground-station input.
 void missionOnMavlink(const struct MavMessage& m);
-void missionOnCommand(const char* cmd, const char* payload);
+// False only when this module owned the verb and refused it, so the board's `ack=` can
+// say no to a 取消 that had nothing to cancel.
+bool missionOnCommand(const char* cmd, const char* payload);
 
 // Home position, latched from the first good GNSS fix while disarmed.
 bool missionHomeSet();
@@ -2132,6 +2170,17 @@ bool hold_requested = false;
 bool land_now = false;
 uint32_t last_captures = 0;
 uint32_t last_upload_ms = 0;
+// The stick channel: axes as sent by the ground station, and the two timers that
+// decide when the board stops re-issuing the override.
+constexpr uint32_t RC_SEND_MS = 100;     // 10 Hz; the FC times an override out
+constexpr uint32_t RC_STALE_MS = 500;    // the ground sends at 8 Hz; silence = released
+constexpr int32_t RC_MID_US = 1500;      // stick centre
+constexpr int32_t RC_FULL_US = 500;      // full deflection either side of it
+bool rc_live = false;
+float rc_ax[4] = {0.0f, 0.0f, 0.0f, 0.0f};   // fwd, side, climb, yaw, each -1..1
+char rc_why[16] = "";
+uint32_t rc_seen = 0;
+uint32_t rc_next = 0;
 float g_home_n = 0, g_home_e = 0, g_home_alt = 0;
 bool g_home_locked = false;
 
@@ -2281,6 +2330,70 @@ void sendAck(uint8_t type) {
     if (n) fcWrite(frame, n);
 }
 
+// --- the stick channel ----------------------------------------------------
+//
+// ArduCopter only honours an RC override in a mode that takes manual input, so
+// taking the sticks also asks the FC for LOITER. Sending a setpoint into AUTO
+// would count as "sent" and be ignored in the air, which is the worst kind of yes.
+void sendRcOverride() {
+    uint8_t payload[40];
+    MavWriter w(payload, sizeof(payload));
+    RcOverrideTx o{};
+    for (int i = 0; i < 18; ++i) o.chan[i] = 0xFFFF;   // ignore: the radio keeps them
+    // Channels 1..4 are roll, pitch, throttle, yaw, so the board's stick order
+    // (fwd, side, climb, yaw) crosses over: forward belongs on the pitch channel and
+    // side on the roll channel. Sending fwd down channel 1 would slide the aircraft
+    // sideways when the operator pushed the stick forward.
+    // A released stick writes 0 = "hand this channel back to the radio".
+    const uint8_t CH_AXIS[4] = {1, 0, 2, 3};
+    for (int i = 0; i < 4; ++i) {
+        o.chan[i] = rc_live
+            ? static_cast<uint16_t>(RC_MID_US + rc_ax[CH_AXIS[i]] * RC_FULL_US)
+            : 0;
+    }
+    o.target_sys = SYSID;
+    o.target_comp = COMPID;
+    o.pack(w);
+    uint8_t frame[MAV_FRAME_MAX];
+    const size_t n = tx.build(MSG_RC_CHANNELS_OVERRIDE, payload, w.size(), frame, sizeof(frame));
+    if (n) fcWrite(frame, n);
+}
+
+// "0.6,-0.25,0,0" -> four floats, clamped to -1..1. Written by hand because the
+// board must not read a comma-decimal "0,6" as sixty.
+bool parseAxes(const char* s, float out[4]) {
+    if (!s) return false;
+    for (int k = 0; k < 4; ++k) {
+        float sign = 1.0f, val = 0.0f, frac = 0.1f;
+        int digits = 0;
+        while (*s == ' ' || *s == '	') ++s;   // a typed line arrives padded
+        if (*s == '-') { sign = -1.0f; ++s; }
+        else if (*s == '+') ++s;
+        while (*s >= '0' && *s <= '9') { val = val * 10.0f + (*s - '0'); ++s; ++digits; }
+        if (*s == '.') {
+            ++s;
+            while (*s >= '0' && *s <= '9') { val += (*s - '0') * frac; frac *= 0.1f; ++s; ++digits; }
+        }
+        if (!digits) return false;
+        float v = sign * val;
+        if (v > 1.0f) v = 1.0f;
+        if (v < -1.0f) v = -1.0f;
+        out[k] = v;
+        if (k != 3) {
+            if (*s != ',') return false;
+            ++s;
+        }
+    }
+    return *s == '\0';
+}
+
+void releaseRc() {
+    if (!rc_live) return;
+    rc_live = false;
+    for (int i = 0; i < 4; ++i) rc_ax[i] = 0.0f;
+    sendRcOverride();
+}
+
 }  // namespace
 
 void missionInit() {
@@ -2294,6 +2407,12 @@ void missionInit() {
     arm_retries = 0;
     land_now = false;
     last_captures = 0;
+    // A board restart must not come back with somebody's hand still on the sticks.
+    rc_live = false;
+    rc_seen = 0;
+    rc_next = 0;
+    rc_why[0] = '\0';
+    for (int i = 0; i < 4; ++i) rc_ax[i] = 0.0f;
 }
 
 bool missionUpload(const Mission& m, MissionSource src) {
@@ -2388,7 +2507,22 @@ void missionTick(uint32_t dt_ms) {
     float hn, he, ha;
     missionHomeEnu(hn, he, ha);
     float n, e, alt;
-    planStep(mission, plan, in, hn, he, ha, dt_ms / 1000.0f, n, e, alt);
+    // The planner is a clock, not a mirror: it burns the dwell countdown, triggers the
+    // camera and walks the waypoint list by elapsed time. None of that may run while a
+    // person has cancelled the sortie or is holding the sticks, or the dashboard would
+    // finish a mission the aircraft never flew -- it would hover over the pad and report
+    // every shutter as taken. `remaining_m` still follows the aircraft, because the
+    // resume is to whatever the next waypoint is from wherever it now is.
+    if (hold_requested || rc_live) {
+        const Waypoint& wp = mission.items[plan.target < mission.count ? plan.target : 0];
+        const float dn = wp.north - air.north, de = wp.east - air.east;
+        plan.remaining_m = std::sqrt(dn * dn + de * de);
+        n = wp.north;
+        e = wp.east;
+        alt = wp.alt;
+    } else {
+        planStep(mission, plan, in, hn, he, ha, dt_ms / 1000.0f, n, e, alt);
+    }
 
     // One camera trigger per planned capture. The planner counts the capture
     // when it enters the dwell, so comparing the counter is what makes this a
@@ -2408,6 +2542,8 @@ void missionTick(uint32_t dt_ms) {
     status.uploading = uploading;
     status.arm_stage = static_cast<uint8_t>(arm);
     status.arm_retries = arm_retries;
+    status.rc_live = rc_live;
+    std::snprintf(status.rc_why, sizeof(status.rc_why), "%s", rc_why);
 
     const Action a = safetyAction();
     status.failsafe = a;
@@ -2425,19 +2561,39 @@ void missionTick(uint32_t dt_ms) {
     }
     if (a == Action::Hover) { missionHold(); return; }
 
+    // A hand on the sticks is re-issued at the FC's own refresh rate -- an override
+    // that is not repeated times out and the aircraft stops under nobody. Silence
+    // from the ground means released, and the failsafe above already outranks a hand.
+    if (rc_live) {
+        if (static_cast<int32_t>(now - rc_seen) >= static_cast<int32_t>(RC_STALE_MS)) {
+            releaseRc();
+        } else if (static_cast<int32_t>(now - rc_next) >= 0) {
+            sendRcOverride();
+            rc_next = now + RC_SEND_MS;
+        }
+    }
+
     // Mode watchdog: the planner's phase and the FC's mode have to agree. A lost
     // DO_SET_MODE would otherwise leave the aircraft flying the old plan while
     // the dashboard says RTL, which is the worst possible disagreement.
+    // A cancelled sortie is in this list *before* the phase, not after it: the phase
+    // still says DWELL or TRANSIT, because cancelling stopped the planner rather than
+    // rewinding it, and reading the phase here is how 悬停 used to last exactly as long
+    // as the stick was released -- the next tick demanded AUTO and took the aircraft out
+    // from under the person who had just cancelled it.
     uint32_t want = 0;
-    if (plan.phase == Phase::Rtl) want = FC_MODE_RTL;
+    if (rc_live || hold_requested) want = FC_MODE_LOITER;
+    else if (plan.phase == Phase::Rtl) want = FC_MODE_RTL;
     else if (plan.phase == Phase::Descending) want = land_now ? FC_MODE_LAND : FC_MODE_RTL;
     else if (arm == ArmStep::Running) want = FC_MODE_AUTO;
     if (want != 0 && air.custom_mode != want) setMode(want);
 
     // The hand-over runs whenever a mission is loaded and the aircraft is not
     // yet flying it, whatever the planner's phase says: a resume from a loiter
-    // has to be able to re-hand-over without pretending to be on the pad.
-    if (!uploading && mission.count && arm != ArmStep::Running) armAdvance(air, now);
+    // has to be able to re-hand-over without pretending to be on the pad. Not
+    // while a hand holds the sticks -- that would yank the aircraft out from
+    // under them back into AUTO the next tick.
+    if (!rc_live && !uploading && mission.count && arm != ArmStep::Running) armAdvance(air, now);
 }
 
 bool missionStartAuto() {
@@ -2461,19 +2617,68 @@ void missionRtl() {
 
 void missionLand() {
     plan.phase = Phase::Descending;
+    // A landing outranks a cancellation: without this the watchdog below would keep
+    // demanding LOITER and the aircraft would descend under protest.
+    hold_requested = false;
     land_now = true;
     setMode(FC_MODE_LAND);
 }
 
-void missionHold() {
-    if (hold_requested) return;
+// Cancelling is a state the board has to *keep*, not a nudge: it stops the planner, and
+// the mode watchdog holds the FC in LOITER until the operator says otherwise -- resume,
+// return, or land. On the pad there is nothing to cancel, and answering yes to that
+// would be the page claiming a control worked when no control exists.
+bool missionHold() {
+    if (plan.phase == Phase::Ground || plan.phase == Phase::Landed) return false;
+    if (hold_requested) return true;
     hold_requested = true;
     sendCommand(CMD_NAV_LOITER_UNLIM, 0, 0, 0);
+    return true;
+}
+
+// The other half of the pair: without it a cancelled sortie can only be flown by hand
+// until the battery ends, and `resume` was a verb with no button.
+bool missionResume() {
+    if (!hold_requested || !mission.count) return false;
+    hold_requested = false;
+    return missionStartAuto();
+}
+
+void missionOnRc(const char* axes) {
+    float a[4];
+    if (!parseAxes(axes, a)) {
+        std::snprintf(rc_why, sizeof(rc_why), "%s", "BAD AXES");
+        return;
+    }
+    const bool neutral = a[0] == 0.0f && a[1] == 0.0f && a[2] == 0.0f && a[3] == 0.0f;
+    // A released stick is not a request, so it cannot be refused: it only hands the
+    // channels back.
+    if (neutral) { releaseRc(); return; }
+    const AirState& air = safetyAir();
+    if (!air.armed || !air.in_flight) {
+        // "The button did nothing" is not something a person can read off an
+        // aircraft on the pad, so the refusal is named and travels in the frame.
+        std::snprintf(rc_why, sizeof(rc_why), "%s", air.armed ? "ON GROUND" : "NOT ARMED");
+        return;
+    }
+    rc_why[0] = '\0';
+    const bool first = !rc_live;
+    for (int i = 0; i < 4; ++i) rc_ax[i] = a[i];
+    rc_live = true;
+    rc_seen = halMillis();
+    if (first && air.custom_mode != FC_MODE_LOITER) setMode(FC_MODE_LOITER);
+    sendRcOverride();
+    rc_next = rc_seen + RC_SEND_MS;
 }
 
 void missionStatus(MissionStatus& out) {
     out = status;
-    std::snprintf(out.mode, sizeof(out.mode), "%s", phaseName(plan.phase));
+    // The frame names who is flying it, and there are now two answers that are not the
+    // planner's phase: a hand on the sticks (HOLD) and a sortie somebody cancelled and
+    // is not currently stick-flying (LOITER). Without the second one, 取消自动 looked in
+    // the dashboard exactly like 巡航中 again the moment the stick came back to centre.
+    std::snprintf(out.mode, sizeof(out.mode), "%s",
+                  rc_live ? "HOLD" : hold_requested ? "LOITER" : phaseName(plan.phase));
 }
 
 bool missionHomeSet() { return g_home_locked; }
@@ -2495,15 +2700,32 @@ void missionHomeEnu(float& n, float& e, float& alt) {
     alt = g_home_alt;
 }
 
-void missionOnCommand(const char* cmd, const char* payload) {
-    if (!cmd) return;
-    if (std::strcmp(cmd, "rtl") == 0) missionRtl();
-    else if (std::strcmp(cmd, "land") == 0) missionLand();
-    else if (std::strcmp(cmd, "hold") == 0) missionHold();
-    else if (std::strcmp(cmd, "resume") == 0) { hold_requested = false; missionStartAuto(); }
+// False only for a verb this file owns *and* refused, which is the difference between
+// the board saying 「已执行 hold」 and having hovered over the pad because there was no
+// sortie to cancel. Verbs this file does not own answer true; main.cpp's own table
+// decides whether they were recognised at all.
+bool missionOnCommand(const char* cmd, const char* payload) {
+    if (!cmd) return true;
+    if (std::strcmp(cmd, "rtl") == 0) { missionRtl(); return true; }
+    else if (std::strcmp(cmd, "land") == 0) { missionLand(); return true; }
+    else if (std::strcmp(cmd, "hold") == 0) return missionHold();
+    // The drawer has one button for both ends of a sortie, so the press that puts it back
+    // under the plan arrives as `patrol` even in the air. In the air the only thing that
+    // can mean is *un-cancel it*: the latch below keeps demanding LOITER from the mode
+    // watchdog, so without clearing it the board answered `ok:patrol` and sat still --
+    // a yes from the board that moved nothing.
+    else if (std::strcmp(cmd, "patrol") == 0) {
+        if (plan.phase == Phase::Ground || plan.phase == Phase::Landed) return true;
+        hold_requested = false;
+        return missionStartAuto();
+    }
+    else if (std::strcmp(cmd, "rc") == 0) { missionOnRc(payload); return true; }
+    else if (std::strcmp(cmd, "resume") == 0) return missionResume();
     else if (std::strcmp(cmd, "camera") == 0 && payload && payload[0] == '1') {
         sendCommand(CMD_DO_DIGICAM_CONTROL, 1, 0, 0);
+        return true;
     }
+    return true;
 }
 
 }  // namespace ranch
@@ -2539,6 +2761,11 @@ void telemetrySetLink(const char* host, uint16_t port, const char* client_id);
 using CommandHandler = void (*)(const char* payload, size_t len);
 void telemetrySetCommandHandler(CommandHandler fn);
 
+// The board's answer to the last command line, published as `ack=ok:<verb>` or
+// `ack=no:<verb>` for a few seconds. Same contract as the other four boards, so one
+// page-side table can say what any of them did about a button.
+void telemetryNoteAck(const char* verb, const char* value, bool ok);
+
 void telemetryPublish(const MissionStatus& ms, const AirState& air);
 void telemetryService();               // broker keepalive + log drain
 void telemetryStats(UplinkStats& out);
@@ -2559,7 +2786,15 @@ constexpr uint16_t LOG_SLOTS = 16;
 constexpr size_t LOG_SLOT = 128;
 // Sized for the longest frame below with every optional field present. A frame
 // that outgrows it is dropped and counted, never truncated.
-constexpr size_t FRAME_CAP = 208;
+constexpr size_t FRAME_CAP = 240;
+
+// The board's answer to the last line anybody typed at it, kept for a few seconds so
+// a dashboard polling at 2 Hz cannot miss it. The lamps on the pad move either way;
+// only this field separates "the FC did that" from "the page did that to itself".
+constexpr uint32_t ACK_HOLD_MS = 6000;
+char ack_verb[40] = "";
+bool ack_ok = false;
+uint32_t ack_ms = 0;
 
 UplinkStats up{};
 char frame[FRAME_CAP];
@@ -2648,6 +2883,8 @@ void telemetryInit() {
     up = UplinkStats{};
     frame[0] = '\0';
     log_head = log_tail = log_len = 0;
+    // A board restart must not come back still answering somebody's last command.
+    ack_verb[0] = '\0';
 }
 
 void telemetrySetLink(const char* host, uint16_t port, const char* client_id) {
@@ -2658,6 +2895,15 @@ void telemetrySetLink(const char* host, uint16_t port, const char* client_id) {
 }
 
 void telemetrySetCommandHandler(CommandHandler fn) { cmd_fn = fn; }
+
+void telemetryNoteAck(const char* verb, const char* value, bool ok) {
+    // The verb alone cannot answer "what did the board do with the number"; a launch
+    // request and a refusal look the same on the console.
+    if (value && *value) std::snprintf(ack_verb, sizeof(ack_verb), "%s=%s", verb, value);
+    else std::snprintf(ack_verb, sizeof(ack_verb), "%s", verb);
+    ack_ok = ok;
+    ack_ms = halMillis();
+}
 
 void telemetryPublish(const MissionStatus& ms, const AirState& air) {
     VideoStats v{};
@@ -2697,10 +2943,23 @@ void telemetryPublish(const MissionStatus& ms, const AirState& air) {
     w.add("shots", static_cast<int>(ms.captures));
     w.add("fps", v.fps);
     w.add("safe", safetyIsSafe() ? 1 : 0);
+    // Who is flying: 1 while this board is forwarding the ground station's sticks to
+    // the FC. Always present, because "the stick does nothing" and "nobody asked for
+    // the stick" are different facts and a missing field cannot tell them apart.
+    w.add("ovr", ms.rc_live ? 1 : 0);
     w.add("link", wifiUp() ? "up" : "down");
     w.add("up", static_cast<int>(air.uptime_ms / 1000u));
+    if (*ms.rc_why) w.add("rcwhy", ms.rc_why);
     if (*safetyReason()) w.add("why", safetyReason());
     if (ms.failsafe != Action::Continue) w.add("fs", actionName(ms.failsafe));
+    // The answer to the last command, for as long as it is still the answer. The stick
+    // channel is deliberately not acked line by line: it is re-sent every 150 ms while
+    // a pad is held and `ovr=`/`rcwhy=` already say what it is doing.
+    if (*ack_verb && static_cast<int32_t>(halMillis() - ack_ms) < static_cast<int32_t>(ACK_HOLD_MS)) {
+        char ack[56];
+        std::snprintf(ack, sizeof(ack), "%s:%s", ack_ok ? "ok" : "no", ack_verb);
+        w.add("ack", ack);
+    }
     w.endLine();
 
     if (w.overflow()) {
@@ -2798,6 +3057,11 @@ struct SimFc {
     uint32_t mode = 0;                 // custom_mode echoed back in HEARTBEAT
     bool mission_running = false;
     float takeoff_alt = SIM_HOME_ALT_M;
+    // Stick override in microseconds, and when the FC last heard one. ArduCopter
+    // times an override out; a simulator that never did would keep flying a stale
+    // setpoint after one dropped frame.
+    uint16_t rc_us[4] = {1500, 1500, 1500, 1500};
+    uint32_t rc_ms = 0;
 
     // Received mission.
     SimItem items[MISSION_MAX_WAYPOINTS];
@@ -2981,6 +3245,14 @@ void enuOf(const SimItem& it, float& n, float& e) {
     e = static_cast<float>((it.lon_e7 - SIM_LON_E7) * 1e-7 * SIM_M_PER_DEG_LON);
 }
 
+// What a full stick does to this airframe. The timeout is ArduCopter's
+// RC_OVERRIDE_TIMEOUT default, so an override that stops being repeated stops
+// working -- the same failure the real stack has.
+constexpr uint32_t SIM_RC_TIMEOUT_MS = 3000;
+constexpr float SIM_STICK_MS = 5.0f;        // full-stick ground speed in a loiter
+constexpr float SIM_STICK_CLIMB_MS = 2.5f;  // full-stick climb rate
+constexpr float SIM_STICK_YAW_DPS = 60.0f;  // full-stick yaw rate
+
 // The attitude the FC reports, derived from the motion this simulator is actually
 // making: a multirotor pitches to climb and banks to turn, so both angles follow from
 // the same numbers that move it. The bank is low-passed because the model swings the
@@ -3041,7 +3313,33 @@ void fcStep(float dt) {
     } else if (fc.mode == FC_MODE_LAND) {
         tn = fc.n; te = fc.e; ta = SIM_HOME_ALT_M;
     } else if (fc.mode == FC_MODE_LOITER) {
-        tn = fc.n; te = fc.e; ta = fc.alt;
+        // A loiter holds position unless the ground station is overriding the
+        // sticks, and a stick at full deflection moves this airframe at
+        // SIM_STICK_MS -- the same numbers the companion's own limits imply.
+        tn = fc.n;
+        te = fc.e;
+        ta = fc.alt;
+        if (g_now - fc.rc_ms < SIM_RC_TIMEOUT_MS) {
+            const float roll = (fc.rc_us[0] - 1500) / 500.0f;
+            const float pitch = (fc.rc_us[1] - 1500) / 500.0f;
+            const float thr = (fc.rc_us[2] - 1500) / 500.0f;
+            const float yaw = (fc.rc_us[3] - 1500) / 500.0f;
+            const float rad = fc.heading_deg / 57.29578f;
+            // ArduCopter's stick axes are the body's, so the FC's own reported
+            // heading is what turns them into world motion: a right stick with the
+            // nose east moves the aircraft south, not north.
+            const float fwd = -pitch * SIM_STICK_MS;     // nose down (low us) is forward
+            const float right = roll * SIM_STICK_MS;
+            tn += (fwd * std::cos(rad) - right * std::sin(rad)) * dt;
+            te += (fwd * std::sin(rad) + right * std::cos(rad)) * dt;
+            ta += thr * SIM_STICK_CLIMB_MS * dt;
+            if (ta < SIM_HOME_ALT_M + 0.5f) ta = SIM_HOME_ALT_M + 0.5f;
+            if (yaw != 0.0f) {
+                fc.heading_deg += yaw * SIM_STICK_YAW_DPS * dt;
+                if (fc.heading_deg < 0.0f) fc.heading_deg += 360.0f;
+                if (fc.heading_deg >= 360.0f) fc.heading_deg -= 360.0f;
+            }
+        }
     } else if (fc.mode == FC_MODE_AUTO && fc.current < fc.count) {
         if (!fc.mission_running) {
             // NAV_TAKEOFF before MISSION_START: climb at the pad, hold there.
@@ -3085,18 +3383,23 @@ void fcStep(float dt) {
         // the turn happen in one message, so there was never a bank to report and the
         // FC's roll sat at zero for the whole flight; turning through a bounded rate
         // is also what makes the reported bank agree with the aircraft's path.
-        float want = std::atan2(de, dn) * 57.29578f;
-        if (want < 0.0f) want += 360.0f;
-        float dh = want - fc.heading_deg;
-        if (dh > 180.0f) dh -= 360.0f;
-        if (dh < -180.0f) dh += 360.0f;
-        constexpr float SIM_YAW_DPS = 90.0f;        // ArduCopter's default turn rate
-        const float lim_yaw = SIM_YAW_DPS * dt;
-        if (dh > lim_yaw) dh = lim_yaw;
-        if (dh < -lim_yaw) dh = -lim_yaw;
-        fc.heading_deg += dh;
-        if (fc.heading_deg < 0.0f) fc.heading_deg += 360.0f;
-        if (fc.heading_deg >= 360.0f) fc.heading_deg -= 360.0f;
+        // A loiter is the exception: there the sticks are body-frame commands, and a
+        // nose that chased its own velocity would curl the aircraft into a spiral
+        // instead of sliding it sideways. Only the yaw stick turns it.
+        if (fc.mode != FC_MODE_LOITER) {
+            float want = std::atan2(de, dn) * 57.29578f;
+            if (want < 0.0f) want += 360.0f;
+            float dh = want - fc.heading_deg;
+            if (dh > 180.0f) dh -= 360.0f;
+            if (dh < -180.0f) dh += 360.0f;
+            constexpr float SIM_YAW_DPS = 90.0f;        // ArduCopter's default turn rate
+            const float lim_yaw = SIM_YAW_DPS * dt;
+            if (dh > lim_yaw) dh = lim_yaw;
+            if (dh < -lim_yaw) dh = -lim_yaw;
+            fc.heading_deg += dh;
+            if (fc.heading_deg < 0.0f) fc.heading_deg += 360.0f;
+            if (fc.heading_deg >= 360.0f) fc.heading_deg -= 360.0f;
+        }
     }
 
     const float da = ta - fc.alt;
@@ -3175,6 +3478,23 @@ void fcOnMessage(const MavMessage& m) {
             fc.accepted = true;
             emitMissionAck();
         }
+        return;
+    }
+    if (m.id == MSG_RC_CHANNELS_OVERRIDE) {
+        // ArduCopter honours an override only in a mode that takes manual input.
+        // In AUTO/RTL/LAND the frame is read and dropped, so a setpoint sent into
+        // the wrong mode shows up here as no motion instead of as a simulator that
+        // flatters whatever the companion transmitted.
+        if (!fc.armed || fc.mode != FC_MODE_LOITER) return;
+        // Wire order: chan1..chan8 as 16-bit, so the four stick channels are the
+        // first eight bytes.
+        for (int i = 0; i < 4; ++i) {
+            const uint16_t v = m.u16At(i * 2);
+            // 0 = release this channel, 65535 = ignore it (keep what was flying).
+            if (v == 0) fc.rc_us[i] = 1500;
+            else if (v != 0xFFFF) fc.rc_us[i] = v;
+        }
+        fc.rc_ms = g_now;
         return;
     }
     if (m.id == MSG_COMMAND_LONG) {
@@ -3684,11 +4004,17 @@ void onGroundCommand(const char* payload, size_t len) {
     if (!payload || len == 0) return;
     char verb[16], value[64];
     size_t i = 0;
-    while (i < len && i < sizeof(verb) - 1 && payload[i] != '=' && payload[i] != '\n') {
-        verb[i] = payload[i];
-        ++i;
+    // A typed line often arrives padded: a terminal adds a space, a paste adds one.
+    // Skipping the padding is what makes `street=1` and ` street=1` one command.
+    while (i < len && (payload[i] == ' ' || payload[i] == '\t')) ++i;
+    // The read cursor and the write index are two things. With one variable doing
+    // both, a padded line left verb[0] uninitialised and the verb was compared
+    // against garbage -- which is how a verb this board knows came out refused.
+    size_t j = 0;
+    while (i < len && j < sizeof(verb) - 1 && payload[i] != '=' && payload[i] != '\n') {
+        verb[j++] = payload[i++];
     }
-    verb[i] = '\0';
+    verb[j] = '\0';
     size_t n = 0;
     if (i < len && payload[i] == '=') {
         ++i;
@@ -3697,14 +4023,32 @@ void onGroundCommand(const char* payload, size_t len) {
     } else {
         value[0] = '\0';
     }
-    missionOnCommand(verb, value);
+    const bool missionTook = missionOnCommand(verb, value);
     if (std::strcmp(verb, "safe") == 0) safetyForceSafe(value[0] == '1');
     // The two commands a person actually reaches for: take the safety off, then
     // send it up. `land` also withdraws a launch that has not happened yet, so a
     // cancelled sortie cannot lift off behind the operator's back.
     else if (std::strcmp(verb, "arm") == 0) safetyForceSafe(value[0] != '1');
     else if (std::strcmp(verb, "takeoff") == 0) launch_requested = true;
+    // The ground app's "自动巡检": the same launch, and the hand-over flies the
+    // stored route from there. Its own verb so the board's log can say which
+    // button was reached for.
+    else if (std::strcmp(verb, "patrol") == 0) launch_requested = true;
     else if (std::strcmp(verb, "land") == 0) launch_requested = false;
+    // Which verbs this board has a handler for, answered in the next frame. `rc` is
+    // left out on purpose: it is re-sent while a pad is held, and `ovr=`/`rcwhy=`
+    // already answer it -- acking every one of those would bury the answer to the
+    // button that actually launched the sortie.
+    static const char* const KNOWN[] = { "safe", "arm", "takeoff", "patrol", "land",
+        "rtl", "hold", "resume", "camera" };
+    bool recognised = false;
+    for (size_t h = 0; h < sizeof(KNOWN) / sizeof(*KNOWN); ++h) {
+        if (std::strcmp(verb, KNOWN[h]) == 0) { recognised = true; break; }
+    }
+    // A verb the board knows *and* a mission that accepted it. `hold` on the pad is the
+    // first without the second, and it has to come back as no.
+    const bool taken = recognised && missionTook;
+    if (std::strcmp(verb, "rc") != 0) telemetryNoteAck(verb, value, taken);
     safetyNoteGcsContact();
 }
 

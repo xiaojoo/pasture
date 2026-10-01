@@ -54,11 +54,27 @@ export function showSampleShape(shape, n, scale, alt, out) {
   const made = [];
   switch (shape) {
     case 0: {
-      const rings = count > 28 ? 3 : 1;
-      for (let r = 0; r < rings && made.length < count; ++r) {
-        const radius = scale * (rings > 1 ? (0.4 + 0.6 * r / (rings - 1)) : 1.0);
-        const inRing = Math.floor((count - made.length) / (rings - r));
-        const take = r === rings - 1 ? count - made.length : inRing;
+      // Concentric rings, with the aircraft shared out by circumference. Giving every ring
+      // the same number (what this did before) packed the inner circle 2.35x tighter than
+      // the outer -- measured at 49 aircraft on an 18 m ring: 2.81 m along the inner circle
+      // against 6.65 m along the outer -- and a ring formation whose rings are not the same
+      // pitch is exactly what reads as 「间隙不对」. Ring j carries weight j because that is
+      // how its circumference grows, which makes the arc gap the same on all of them; the
+      // number of rings comes from the count so the radial gap stays near that arc gap
+      // instead of dominating it. The single-ring case is untouched: it was already even.
+      let rings = 1;
+      if (count > 28) {
+        rings = Math.round((Math.sqrt(1 + 4 * count / Math.PI) - 1) / 2);
+        if (rings < 2) rings = 2;
+        if (rings > count) rings = count;
+      }
+      const t = rings * (rings + 1);
+      let prev = 0;
+      for (let j = 1; j <= rings; ++j) {
+        const upto = Math.floor(count * j * (j + 1) / t);
+        const take = upto - prev;
+        prev = upto;
+        const radius = scale * j / rings;
         for (let i = 0; i < take; ++i) {
           const a = 2 * Math.PI * i / take;
           made.push({ n: radius * Math.sin(a), e: radius * Math.cos(a), d });
@@ -81,11 +97,43 @@ export function showSampleShape(shape, n, scale, alt, out) {
       break;
     }
     case 2: {
+      // Equal **arc length**, not equal parameter -- the same fix as show_core.h's
+      // SHAPE_HEART: equal-parameter steps pack the bottom tip and the top dimple of a
+      // parametric heart to 0.59 m apart, which the 2 m rule rightly refuses, and the
+      // refusal looks like a transition problem when it is the outline. 720 steps, in
+      // the same order as the C++, because the cross-check compares the two to the
+      // centimetre.
+      const STEPS = 720;
+      const at = i => {
+        const t = 2 * Math.PI * i / STEPS;
+        const s = Math.sin(t);
+        return [16 * s * s * s,
+          13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t)];
+      };
+      let total = 0;
+      for (let i = 0; i < STEPS; ++i) {
+        const p = at(i), q = at(i + 1);
+        const dx = q[0] - p[0], dy = q[1] - p[1];
+        total += Math.sqrt(dx * dx + dy * dy);
+      }
+      const step = total / count;
+      let k = 0, a = at(0), b = at(1), walked = 0;
       for (let i = 0; i < count; ++i) {
-        const t = 2 * Math.PI * i / count;
-        const x = 16 * Math.pow(Math.sin(t), 3);
-        const y = 13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t);
-        made.push({ e: x * (scale / 17), n: y * (scale / 17), d });
+        const want = i * step;
+        for (;;) {
+          b = at(k + 1);
+          const dx = b[0] - a[0], dy = b[1] - a[1];
+          const len = Math.sqrt(dx * dx + dy * dy);
+          if (walked + len > want || k + 1 >= STEPS) break;
+          walked += len;
+          a = b;
+          ++k;
+        }
+        const dx = b[0] - a[0], dy = b[1] - a[1];
+        const len = Math.sqrt(dx * dx + dy * dy);
+        const f = len > 0.0 ? (want - walked) / len : 0.0;
+        // /17, not /16: the outline reaches -17 below the origin and +12 above it.
+        made.push({ e: (a[0] + dx * f) * (scale / 17), n: (a[1] + dy * f) * (scale / 17), d });
       }
       break;
     }

@@ -57,6 +57,11 @@ struct SimFc {
     uint32_t mode = 0;                 // custom_mode echoed back in HEARTBEAT
     bool mission_running = false;
     float takeoff_alt = SIM_HOME_ALT_M;
+    // Stick override in microseconds, and when the FC last heard one. ArduCopter
+    // times an override out; a simulator that never did would keep flying a stale
+    // setpoint after one dropped frame.
+    uint16_t rc_us[4] = {1500, 1500, 1500, 1500};
+    uint32_t rc_ms = 0;
 
     // Received mission.
     SimItem items[MISSION_MAX_WAYPOINTS];
@@ -240,6 +245,14 @@ void enuOf(const SimItem& it, float& n, float& e) {
     e = static_cast<float>((it.lon_e7 - SIM_LON_E7) * 1e-7 * SIM_M_PER_DEG_LON);
 }
 
+// What a full stick does to this airframe. The timeout is ArduCopter's
+// RC_OVERRIDE_TIMEOUT default, so an override that stops being repeated stops
+// working -- the same failure the real stack has.
+constexpr uint32_t SIM_RC_TIMEOUT_MS = 3000;
+constexpr float SIM_STICK_MS = 5.0f;        // full-stick ground speed in a loiter
+constexpr float SIM_STICK_CLIMB_MS = 2.5f;  // full-stick climb rate
+constexpr float SIM_STICK_YAW_DPS = 60.0f;  // full-stick yaw rate
+
 // The attitude the FC reports, derived from the motion this simulator is actually
 // making: a multirotor pitches to climb and banks to turn, so both angles follow from
 // the same numbers that move it. The bank is low-passed because the model swings the
@@ -300,7 +313,33 @@ void fcStep(float dt) {
     } else if (fc.mode == FC_MODE_LAND) {
         tn = fc.n; te = fc.e; ta = SIM_HOME_ALT_M;
     } else if (fc.mode == FC_MODE_LOITER) {
-        tn = fc.n; te = fc.e; ta = fc.alt;
+        // A loiter holds position unless the ground station is overriding the
+        // sticks, and a stick at full deflection moves this airframe at
+        // SIM_STICK_MS -- the same numbers the companion's own limits imply.
+        tn = fc.n;
+        te = fc.e;
+        ta = fc.alt;
+        if (g_now - fc.rc_ms < SIM_RC_TIMEOUT_MS) {
+            const float roll = (fc.rc_us[0] - 1500) / 500.0f;
+            const float pitch = (fc.rc_us[1] - 1500) / 500.0f;
+            const float thr = (fc.rc_us[2] - 1500) / 500.0f;
+            const float yaw = (fc.rc_us[3] - 1500) / 500.0f;
+            const float rad = fc.heading_deg / 57.29578f;
+            // ArduCopter's stick axes are the body's, so the FC's own reported
+            // heading is what turns them into world motion: a right stick with the
+            // nose east moves the aircraft south, not north.
+            const float fwd = -pitch * SIM_STICK_MS;     // nose down (low us) is forward
+            const float right = roll * SIM_STICK_MS;
+            tn += (fwd * std::cos(rad) - right * std::sin(rad)) * dt;
+            te += (fwd * std::sin(rad) + right * std::cos(rad)) * dt;
+            ta += thr * SIM_STICK_CLIMB_MS * dt;
+            if (ta < SIM_HOME_ALT_M + 0.5f) ta = SIM_HOME_ALT_M + 0.5f;
+            if (yaw != 0.0f) {
+                fc.heading_deg += yaw * SIM_STICK_YAW_DPS * dt;
+                if (fc.heading_deg < 0.0f) fc.heading_deg += 360.0f;
+                if (fc.heading_deg >= 360.0f) fc.heading_deg -= 360.0f;
+            }
+        }
     } else if (fc.mode == FC_MODE_AUTO && fc.current < fc.count) {
         if (!fc.mission_running) {
             // NAV_TAKEOFF before MISSION_START: climb at the pad, hold there.
@@ -344,18 +383,23 @@ void fcStep(float dt) {
         // the turn happen in one message, so there was never a bank to report and the
         // FC's roll sat at zero for the whole flight; turning through a bounded rate
         // is also what makes the reported bank agree with the aircraft's path.
-        float want = std::atan2(de, dn) * 57.29578f;
-        if (want < 0.0f) want += 360.0f;
-        float dh = want - fc.heading_deg;
-        if (dh > 180.0f) dh -= 360.0f;
-        if (dh < -180.0f) dh += 360.0f;
-        constexpr float SIM_YAW_DPS = 90.0f;        // ArduCopter's default turn rate
-        const float lim_yaw = SIM_YAW_DPS * dt;
-        if (dh > lim_yaw) dh = lim_yaw;
-        if (dh < -lim_yaw) dh = -lim_yaw;
-        fc.heading_deg += dh;
-        if (fc.heading_deg < 0.0f) fc.heading_deg += 360.0f;
-        if (fc.heading_deg >= 360.0f) fc.heading_deg -= 360.0f;
+        // A loiter is the exception: there the sticks are body-frame commands, and a
+        // nose that chased its own velocity would curl the aircraft into a spiral
+        // instead of sliding it sideways. Only the yaw stick turns it.
+        if (fc.mode != FC_MODE_LOITER) {
+            float want = std::atan2(de, dn) * 57.29578f;
+            if (want < 0.0f) want += 360.0f;
+            float dh = want - fc.heading_deg;
+            if (dh > 180.0f) dh -= 360.0f;
+            if (dh < -180.0f) dh += 360.0f;
+            constexpr float SIM_YAW_DPS = 90.0f;        // ArduCopter's default turn rate
+            const float lim_yaw = SIM_YAW_DPS * dt;
+            if (dh > lim_yaw) dh = lim_yaw;
+            if (dh < -lim_yaw) dh = -lim_yaw;
+            fc.heading_deg += dh;
+            if (fc.heading_deg < 0.0f) fc.heading_deg += 360.0f;
+            if (fc.heading_deg >= 360.0f) fc.heading_deg -= 360.0f;
+        }
     }
 
     const float da = ta - fc.alt;
@@ -434,6 +478,23 @@ void fcOnMessage(const MavMessage& m) {
             fc.accepted = true;
             emitMissionAck();
         }
+        return;
+    }
+    if (m.id == MSG_RC_CHANNELS_OVERRIDE) {
+        // ArduCopter honours an override only in a mode that takes manual input.
+        // In AUTO/RTL/LAND the frame is read and dropped, so a setpoint sent into
+        // the wrong mode shows up here as no motion instead of as a simulator that
+        // flatters whatever the companion transmitted.
+        if (!fc.armed || fc.mode != FC_MODE_LOITER) return;
+        // Wire order: chan1..chan8 as 16-bit, so the four stick channels are the
+        // first eight bytes.
+        for (int i = 0; i < 4; ++i) {
+            const uint16_t v = m.u16At(i * 2);
+            // 0 = release this channel, 65535 = ignore it (keep what was flying).
+            if (v == 0) fc.rc_us[i] = 1500;
+            else if (v != 0xFFFF) fc.rc_us[i] = v;
+        }
+        fc.rc_ms = g_now;
         return;
     }
     if (m.id == MSG_COMMAND_LONG) {

@@ -240,6 +240,220 @@ int main() {
     CHECK(safetyCanArm(why, sizeof(why)), "and pre-flight does say it may fly");
     std::printf("        (pre-flight cleared with %s, still on the pad)\n", why);
 
+    // --- the stick channel: axes typed into the console have to move the airframe
+    std::printf("sandbox: sticks\n");
+    appSetup();
+    simCommand("arm=1");
+    for (int i = 0; i < 40; ++i) appLoop();
+    simCommand("rc=0.8,0,0,0");
+    // Longer than one telemetry period: a refusal that has not been published yet
+    // cannot be found in the last frame, and the check would pass or fail on timing.
+    for (int i = 0; i < 300; ++i) appLoop();
+    {
+        MissionStatus msp{};
+        missionStatus(msp);
+        CHECK(!msp.rc_live, "a stick pushed before the aircraft is airborne is not taken");
+        CHECK(std::strcmp(msp.rc_why, "NOT ARMED") == 0, "and the board names the refusal");
+        CHECK(std::strstr(telemetryLastFrame(), ",ovr=0,") != nullptr, "ovr=0 is published");
+        CHECK(std::strstr(telemetryLastFrame(), ",rcwhy=NOT ARMED") != nullptr,
+              "the reason travels in the same frame the dashboard reads");
+    }
+    simCommand("takeoff");
+    int guard = 0;
+    while (guard++ < 30000 && !safetyAir().in_flight) appLoop();
+    CHECK(safetyAir().in_flight, "the aircraft is airborne before the sticks are tried");
+    {
+        const float n0 = safetyAir().north, e0 = safetyAir().east;
+        const float th0 = safetyAir().heading_deg;
+        // Hold the stick right for ~1.5 s, re-issuing well inside the board's own
+        // silence window -- the same rate the ground app's pad sends at.
+        for (int k = 0; k < 8; ++k) {
+            simCommand("rc=0,0.9,0,0");
+            for (int i = 0; i < 48; ++i) appLoop();
+        }
+        MissionStatus msg{};
+        missionStatus(msg);
+        const float dn = safetyAir().north - n0, de = safetyAir().east - e0;
+        const float rad = th0 / 57.29578f;
+        // The commanded direction is right of the nose; anything along the nose is
+        // a crossed channel. Roll and pitch are the two that are easiest to swap.
+        const float along = -dn * std::sin(rad) + de * std::cos(rad);
+        const float cross = dn * std::cos(rad) + de * std::sin(rad);
+        CHECK(msg.rc_live, "the board is forwarding the stick to the flight controller");
+        CHECK(std::strcmp(msg.mode, "HOLD") == 0, "and the frame says who is flying it");
+        CHECK(std::strstr(telemetryLastFrame(), ",ovr=1,") != nullptr, "ovr=1 reached the console");
+        CHECK(along > 4.0f, "the airframe moved right of its own nose");
+        CHECK(std::fabs(cross) < along, "and sideways, not fore-and-aft");
+        simCommand("rc=0,0,0,0");
+        for (int i = 0; i < 300; ++i) appLoop();
+        MissionStatus msl{};
+        missionStatus(msl);
+        CHECK(!msl.rc_live, "a released stick stops the override");
+        simCommand("rc= 0.4,0,0,0");   // a space after the = is padding, not a bad axis
+        for (int i = 0; i < 30; ++i) appLoop();
+        MissionStatus msgp{};
+        missionStatus(msgp);
+        CHECK(msgp.rc_live, "and a padded axis line still flies");
+        simCommand("rc=0,0,0,0");
+        for (int i = 0; i < 260; ++i) appLoop();   // one publish, so the frame is an answer
+        CHECK(std::strstr(telemetryLastFrame(), ",ovr=0,") != nullptr, "and the frame says so");
+    }
+    {
+        // Only the parser can fail this one: a comma decimal is a refusal, not a
+        // silent clamp of the axis to full.
+        simCommand("rc=0,6");
+        // Long enough for the mission job to copy the answer into the published
+        // status: a shorter wait reads the previous command's verdict instead.
+        for (int i = 0; i < 130; ++i) appLoop();
+        MissionStatus msa{};
+        missionStatus(msa);
+        CHECK(!msa.rc_live, "a malformed axis line is refused, not read as sixty");
+        CHECK(std::strcmp(msa.rc_why, "BAD AXES") == 0, "with the reason the parser gave");
+    }
+
+    // --- the board answers the button, not only the lamp ---
+    // The other four boards carry this field; the drone was the one that left the page
+    // guessing whether 起飞 had reached the FC at all.
+    std::printf("sandbox: command acknowledgements\n");
+    {
+        simCommand("takeoff");
+        for (int i = 0; i < 130; ++i) appLoop();     // one publish, so the frame is an answer
+        CHECK(std::strstr(telemetryLastFrame(), "ack=ok:takeoff") != nullptr,
+              "a verb this board knows is answered ok");
+        simCommand("nonesuch=1");
+        for (int i = 0; i < 130; ++i) appLoop();
+        CHECK(std::strstr(telemetryLastFrame(), "ack=no:nonesuch=1") != nullptr,
+              "one it does not is answered no, with the value it was handed");
+        // A held pad sends a stick line every 150 ms. Those are answered by ovr= and
+        // rcwhy=, not here, or the answer to the launch button would be overwritten
+        // six times a second by the answer to a stick.
+        simCommand("rc=0.2,0,0,0");
+        for (int i = 0; i < 130; ++i) appLoop();
+        CHECK(std::strstr(telemetryLastFrame(), "ack=no:nonesuch=1") != nullptr,
+              "and a stick line does not overwrite the answer to the last button");
+        simCommand(" hold");
+        for (int i = 0; i < 130; ++i) appLoop();
+        CHECK(std::strstr(telemetryLastFrame(), "ack=ok:hold") != nullptr,
+              "a padded verb is still a verb this board knows");
+    }
+
+    // --- cancelling the automatic sortie, and flying it by hand afterwards ---
+    // The rule this section exists for: 取消 has to *stay* cancelled. Before it did, the
+    // mode watchdog read the planner's phase (still TRANSIT, because cancelling stops the
+    // planner rather than rewinding it) and pulled the aircraft back into AUTO the moment
+    // the stick came back to centre -- so "cancel, then fly it yourself" was a control
+    // that worked for one 150 ms line.
+    std::printf("sandbox: cancelling the automatic sortie\n");
+    appSetup();
+    simCommand("arm=1");
+    for (int i = 0; i < 40; ++i) appLoop();
+    {
+        simCommand("hold");
+        for (int i = 0; i < 300; ++i) appLoop();
+        CHECK(std::strstr(telemetryLastFrame(), "ack=no:hold") != nullptr,
+              "cancelling on the pad is refused, not acknowledged");
+    }
+    simCommand("takeoff");
+    int cguard = 0;
+    while (cguard++ < 30000 && !safetyAir().in_flight) appLoop();
+    CHECK(safetyAir().in_flight, "airborne before the cancellation is tried");
+    // Cancel *at a waypoint*, and measure from the moment of the cancel. Two versions of
+    // this block were worthless before that: cancelling mid-leg could not see the damage
+    // at all (the planner only walks the list when a dwell expires), and taking the
+    // baseline after waiting 16 s measured a plan whose 3-6 s dwell had already burned --
+    // so it compared a burned plan with a burned plan and stayed green with the freeze
+    // deleted.
+    MissionStatus msw{};
+    int dw = 0;
+    do { appLoop(); missionStatus(msw); } while (++dw < 30000 && msw.phase != Phase::Dwelling);
+    CHECK(msw.phase == Phase::Dwelling, "the aircraft arrived at a waypoint and is dwelling there");
+    auto upNow = [] {
+        const char* at = std::strstr(telemetryLastFrame(), ",up=");
+        long v = 0;
+        if (at) std::sscanf(at + 4, "%ld", &v);
+        return v;
+    };
+    simCommand("hold");
+    for (int i = 0; i < 300; ++i) appLoop();
+    {
+        MissionStatus a{};
+        missionStatus(a);
+        CHECK(std::strcmp(a.mode, "LOITER") == 0, "the frame says the sortie is cancelled");
+        CHECK(safetyAir().custom_mode == FC_MODE_LOITER, "and the FC is really sitting in LOITER");
+        CHECK(std::strstr(telemetryLastFrame(), "ack=ok:hold") != nullptr, "the board answers yes");
+        // A window of the board's own elapsed seconds, long past every dwell in the route
+        // (the factory waypoints dwell 3-6 s), not a tick count.
+        const uint8_t tgt0 = a.target;
+        const uint32_t caps0 = a.captures;
+        const long u0 = upNow();
+        int g = 0;
+        while (upNow() < u0 + 60 && g++ < 400000) appLoop();
+        CHECK(upNow() - u0 >= 60, "the cancelled window really covered a minute of flight time");
+        MissionStatus b{};
+        missionStatus(b);
+        CHECK(std::strcmp(b.mode, "LOITER") == 0,
+              "still cancelled a minute later with nobody on the sticks");
+        CHECK(safetyAir().custom_mode == FC_MODE_LOITER, "the watchdog did not pull it back into AUTO");
+        CHECK(b.target == tgt0, "the waypoint cursor did not walk the list while cancelled");
+        CHECK(b.captures == caps0, "no shutter was counted while nothing was flying");
+    }
+    {
+        const float n0 = safetyAir().north, e0 = safetyAir().east;
+        for (int k = 0; k < 8; ++k) {
+            simCommand("rc=0,0.9,0,0");
+            for (int i = 0; i < 48; ++i) appLoop();
+        }
+        MissionStatus msh{};
+        missionStatus(msh);
+        const float moved = std::hypot(safetyAir().north - n0, safetyAir().east - e0);
+        CHECK(msh.rc_live, "the sticks are live under a cancelled sortie");
+        CHECK(std::strcmp(msh.mode, "HOLD") == 0, "and the frame names who is flying it");
+        CHECK(moved > 2.0f, "the hand actually moved the aircraft");
+    }
+    simCommand("rc=0,0,0,0");
+    for (int i = 0; i < 1200; ++i) appLoop();
+    {
+        MissionStatus msh{};
+        missionStatus(msh);
+        CHECK(!msh.rc_live, "releasing the stick hands the channels back");
+        CHECK(std::strcmp(msh.mode, "LOITER") == 0, "and the aircraft stays where the operator left it");
+    }
+    simCommand("resume");
+    for (int i = 0; i < 400; ++i) appLoop();
+    {
+        MissionStatus msh{};
+        missionStatus(msh);
+        CHECK(std::strcmp(msh.mode, "LOITER") != 0, "resume puts the sortie back under the plan");
+        CHECK(std::strstr(telemetryLastFrame(), "ack=ok:resume") != nullptr, "and says so");
+    }
+    {
+        // Only the second resume can fail this one: a resume with nothing cancelled is
+        // not a thing that happened, and answering yes would be the board inventing work.
+        simCommand("resume");
+        for (int i = 0; i < 300; ++i) appLoop();
+        CHECK(std::strstr(telemetryLastFrame(), "ack=no:resume") != nullptr,
+              "a resume with nothing cancelled is refused");
+    }
+    {
+        // The drawer's one button sends `patrol` for the second press, so `patrol` in the
+        // air has to be the un-cancel. Measured from a *fresh* cancellation: the resume
+        // above already cleared the latch, and a check run against an uncleared state
+        // stays green with the new branch deleted.
+        simCommand("hold");
+        for (int i = 0; i < 300; ++i) appLoop();
+        MissionStatus mp0{};
+        missionStatus(mp0);
+        CHECK(std::strcmp(mp0.mode, "LOITER") == 0, "cancelled again for the patrol press");
+        simCommand("patrol");
+        for (int i = 0; i < 400; ++i) appLoop();
+        MissionStatus mp1{};
+        missionStatus(mp1);
+        CHECK(std::strcmp(mp1.mode, "LOITER") != 0,
+              "patrol from the cancelled state puts the sortie back under the plan");
+        CHECK(std::strstr(telemetryLastFrame(), "ack=ok:patrol") != nullptr,
+              "and answers for the button that was pressed");
+    }
+
     // --- MAVLink field layouts, both frame lengths an FC may actually send ---
     std::printf("codec: BATTERY_STATUS with and without extension fields\n");
     {

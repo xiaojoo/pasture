@@ -270,11 +270,17 @@ void onGroundCommand(const char* payload, size_t len) {
     if (!payload || len == 0) return;
     char verb[16], value[64];
     size_t i = 0;
-    while (i < len && i < sizeof(verb) - 1 && payload[i] != '=' && payload[i] != '\n') {
-        verb[i] = payload[i];
-        ++i;
+    // A typed line often arrives padded: a terminal adds a space, a paste adds one.
+    // Skipping the padding is what makes `street=1` and ` street=1` one command.
+    while (i < len && (payload[i] == ' ' || payload[i] == '\t')) ++i;
+    // The read cursor and the write index are two things. With one variable doing
+    // both, a padded line left verb[0] uninitialised and the verb was compared
+    // against garbage -- which is how a verb this board knows came out refused.
+    size_t j = 0;
+    while (i < len && j < sizeof(verb) - 1 && payload[i] != '=' && payload[i] != '\n') {
+        verb[j++] = payload[i++];
     }
-    verb[i] = '\0';
+    verb[j] = '\0';
     size_t n = 0;
     if (i < len && payload[i] == '=') {
         ++i;
@@ -283,14 +289,32 @@ void onGroundCommand(const char* payload, size_t len) {
     } else {
         value[0] = '\0';
     }
-    missionOnCommand(verb, value);
+    const bool missionTook = missionOnCommand(verb, value);
     if (std::strcmp(verb, "safe") == 0) safetyForceSafe(value[0] == '1');
     // The two commands a person actually reaches for: take the safety off, then
     // send it up. `land` also withdraws a launch that has not happened yet, so a
     // cancelled sortie cannot lift off behind the operator's back.
     else if (std::strcmp(verb, "arm") == 0) safetyForceSafe(value[0] != '1');
     else if (std::strcmp(verb, "takeoff") == 0) launch_requested = true;
+    // The ground app's "自动巡检": the same launch, and the hand-over flies the
+    // stored route from there. Its own verb so the board's log can say which
+    // button was reached for.
+    else if (std::strcmp(verb, "patrol") == 0) launch_requested = true;
     else if (std::strcmp(verb, "land") == 0) launch_requested = false;
+    // Which verbs this board has a handler for, answered in the next frame. `rc` is
+    // left out on purpose: it is re-sent while a pad is held, and `ovr=`/`rcwhy=`
+    // already answer it -- acking every one of those would bury the answer to the
+    // button that actually launched the sortie.
+    static const char* const KNOWN[] = { "safe", "arm", "takeoff", "patrol", "land",
+        "rtl", "hold", "resume", "camera" };
+    bool recognised = false;
+    for (size_t h = 0; h < sizeof(KNOWN) / sizeof(*KNOWN); ++h) {
+        if (std::strcmp(verb, KNOWN[h]) == 0) { recognised = true; break; }
+    }
+    // A verb the board knows *and* a mission that accepted it. `hold` on the pad is the
+    // first without the second, and it has to come back as no.
+    const bool taken = recognised && missionTook;
+    if (std::strcmp(verb, "rc") != 0) telemetryNoteAck(verb, value, taken);
     safetyNoteGcsContact();
 }
 

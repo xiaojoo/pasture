@@ -10,7 +10,8 @@
 namespace ranch {
 namespace {
 
-constexpr size_t FRAME_CAP = 224;
+// 272, not 224: the longest frame the sandbox publishes is 204 bytes; `lim=` and a transient `ack=` with a 32-character value do not fit beside a long `why=`.
+constexpr size_t FRAME_CAP = 272;
 
 UplinkStats up{};
 char frame[FRAME_CAP];
@@ -19,6 +20,15 @@ char broker_host[64] = "";
 char broker_client[24] = "fire";
 uint16_t broker_port = MQTT_PORT;
 CommandHandler cmd_fn = nullptr;
+// The board's answer to the last line typed at its console, kept for a few seconds
+// so a dashboard polling at 2 Hz cannot miss it.
+constexpr uint32_t ACK_HOLD_MS = 6000;
+char ack_verb[40] = "";
+bool ack_ok = false;
+uint32_t ack_ms = 0;
+// The panel's timers as it holds them, handed over already formatted.
+char lim_text[64] = "";
+
 
 char loopDigit(LoopState s) {
     switch (s) {
@@ -107,6 +117,10 @@ bool brokerUp() { return broker.connected(); }
 void telemetryInit() {
     up = UplinkStats{};
     frame[0] = '\0';
+    // A restart must not come back still answering the last command.
+    ack_verb[0] = '\0';
+    ack_ms = 0;
+    lim_text[0] = '\0';   // appSetup hands the timers over right after this
     last_event[0] = '\0';
 }
 
@@ -118,6 +132,19 @@ void telemetrySetLink(const char* host, uint16_t port, const char* client_id) {
 }
 
 void telemetrySetCommandHandler(CommandHandler fn) { cmd_fn = fn; }
+void telemetrySetLimits(const char* text) {
+    std::snprintf(lim_text, sizeof(lim_text), "%s", text ? text : "");
+}
+
+void telemetryNoteAck(const char* verb, const char* value, bool ok) {
+    // The verb alone cannot answer "what value did the board keep"; an operator
+    // changing a trip threshold needs the number back, not just a yes.
+    if (value && *value) std::snprintf(ack_verb, sizeof(ack_verb), "%s=%s", verb, value);
+    else std::snprintf(ack_verb, sizeof(ack_verb), "%s", verb);
+    ack_ok = ok;
+    ack_ms = halMillis();
+}
+
 
 void telemetryPublish(const FireReport& r) {
     char z[8];
@@ -166,6 +193,15 @@ void telemetryPublish(const FireReport& r) {
         w.add("clock", "unset");
     }
     if (r.d.reason[0] != '\0') w.add("why", r.d.reason);
+    // The board's answer to the last line typed at it: a dashboard that only sees
+    // valves and relays cannot tell "the board did that" from "the page did it to
+    // itself", which is the difference between a control and a painting.
+    if (*lim_text) w.add("lim", lim_text);
+    if (*ack_verb && static_cast<int32_t>(halMillis() - ack_ms) < static_cast<int32_t>(ACK_HOLD_MS)) {
+        char ack[56];
+        std::snprintf(ack, sizeof(ack), "%s:%s", ack_ok ? "ok" : "no", ack_verb);
+        w.add("ack", ack);
+    }
     w.endLine();
 
     if (w.overflow()) {

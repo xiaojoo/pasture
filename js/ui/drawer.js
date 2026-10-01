@@ -1,7 +1,8 @@
 import { drawer, drawerBody, drawerData, drawerSubtitle, drawerTitle } from './drawer-data.js';
-import { mountEspPanel, setDockOpen, runPreset } from './esp-panel.js';
+import { mountEspPanel, setDockOpen, runPreset, wireLightingSwitches } from './esp-panel.js';
 import { mountDronePanel } from './drone-panel.js';
 import { mountWaterPanel } from './water-panel.js';
+import { wireWaterSwitches } from './water-visual.js';
 import { mountPowerPanel } from './power-panel.js';
 import { mountFirePanel } from './fire-panel.js';
 /* =========================================================
@@ -48,6 +49,18 @@ export function openDrawer(type){
             mount[1](host);
 
     }
+
+    // The lighting switches live in this drawer's rebuilt markup, so they are wired
+    // here rather than once at page load: the node a listener was put on last time is
+    // gone, and a switch that flips the picture but never reaches the board is the bug
+    // this whole pass was sent to find.
+    if(type === "power")
+        wireLightingSwitches();
+
+    // Same story in the 水利 drawer: two master switches whose inline handler named a
+    // module binding that is not on `window`, so pressing them only logged a ReferenceError.
+    if(type === "water")
+        wireWaterSwitches();
 
 
     if(type === "board")

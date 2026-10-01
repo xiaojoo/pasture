@@ -10,7 +10,10 @@
 namespace ranch {
 namespace {
 
-constexpr size_t FRAME_CAP = 256;
+// 256 was enough before `lim=`; nine named thresholds plus a transient `ack=` are not,
+// and a frame that overflows is dropped whole -- which would silently lose the
+// readings, not just the settings. Headroom is measured in the bundle run.
+constexpr size_t FRAME_CAP = 336;
 
 UplinkStats up{};
 char frame[FRAME_CAP];
@@ -18,6 +21,15 @@ char broker_host[64] = "";
 char broker_client[24] = "power";
 uint16_t broker_port = MQTT_PORT;
 CommandHandler cmd_fn = nullptr;
+// The board's answer to the last line typed at its console, kept for a few seconds
+// so a dashboard polling at 2 Hz cannot miss it.
+constexpr uint32_t ACK_HOLD_MS = 6000;
+char ack_verb[40] = "";
+bool ack_ok = false;
+uint32_t ack_ms = 0;
+// The thresholds as this board holds them, handed over already formatted.
+char lim[120] = "";
+
 
 }  // namespace
 
@@ -77,6 +89,12 @@ bool brokerUp() { return broker.connected(); }
 void telemetryInit() {
     up = UplinkStats{};
     frame[0] = '\0';
+    // A restart must not come back still answering the last command.
+    ack_verb[0] = '\0';
+    ack_ms = 0;
+    lim[0] = '\0';   // appSetup hands the real thresholds over right after this
+    lim[0] = '\0';   // appSetup hands the real thresholds over right after this
+    lim[0] = '\0';   // appSetup hands the real thresholds over right after this
 }
 
 void telemetrySetLink(const char* host, uint16_t port, const char* client_id) {
@@ -87,6 +105,19 @@ void telemetrySetLink(const char* host, uint16_t port, const char* client_id) {
 }
 
 void telemetrySetCommandHandler(CommandHandler fn) { cmd_fn = fn; }
+void telemetrySetLimits(const char* text) {
+    std::snprintf(lim, sizeof(lim), "%s", text ? text : "");
+}
+
+void telemetryNoteAck(const char* verb, const char* value, bool ok) {
+    // The verb alone cannot answer "what value did the board keep"; an operator
+    // changing a trip threshold needs the number back, not just a yes.
+    if (value && *value) std::snprintf(ack_verb, sizeof(ack_verb), "%s=%s", verb, value);
+    else std::snprintf(ack_verb, sizeof(ack_verb), "%s", verb);
+    ack_ok = ok;
+    ack_ms = halMillis();
+}
+
 
 void telemetryPublish(const PowerReport& r) {
     const PowerRead& d = r.m.read;
@@ -127,6 +158,15 @@ void telemetryPublish(const PowerReport& r) {
     if (r.fo.trip_latched) w.add("lock", static_cast<int>(r.fo.lockout_s));
     if (!r.clock_valid) w.add("clock", "unset");
     if (r.reason && *r.reason) w.add("why", r.reason);
+    if (*lim) w.add("lim", lim);
+    // The board's answer to the last line typed at it: a dashboard that only sees
+    // valves and relays cannot tell "the board did that" from "the page did it to
+    // itself", which is the difference between a control and a painting.
+    if (*ack_verb && static_cast<int32_t>(halMillis() - ack_ms) < static_cast<int32_t>(ACK_HOLD_MS)) {
+        char ack[56];
+        std::snprintf(ack, sizeof(ack), "%s:%s", ack_ok ? "ok" : "no", ack_verb);
+        w.add("ack", ack);
+    }
     w.endLine();
 
     if (w.overflow()) {

@@ -206,11 +206,17 @@ void onGroundCommand(const char* payload, size_t len) {
     if (!payload || len == 0) return;
     char verb[16], value[24];
     size_t i = 0;
-    while (i < len && i < sizeof(verb) - 1 && payload[i] != '=' && payload[i] != '\n') {
-        verb[i] = payload[i];
-        ++i;
+    // A typed line often arrives padded: a terminal adds a space, a paste adds one.
+    // Skipping the padding is what makes `street=1` and ` street=1` one command.
+    while (i < len && (payload[i] == ' ' || payload[i] == '\t')) ++i;
+    // The read cursor and the write index are two things. With one variable doing
+    // both, a padded line left verb[0] uninitialised and the verb was compared
+    // against garbage -- which is how a verb this board knows came out refused.
+    size_t j = 0;
+    while (i < len && j < sizeof(verb) - 1 && payload[i] != '=' && payload[i] != '\n') {
+        verb[j++] = payload[i++];
     }
-    verb[i] = '\0';
+    verb[j] = '\0';
     size_t n = 0;
     if (i < len && payload[i] == '=') {
         ++i;
@@ -250,6 +256,7 @@ void onGroundCommand(const char* payload, size_t len) {
     } else {
         taken = false;
     }
+    telemetryNoteAck(verb, value, taken);
     telemetryEvent(taken ? "cmd" : "cmd-unknown");
 }
 
@@ -301,6 +308,42 @@ void lightTask(void*) {
 
 }  // namespace
 
+// The console's input, as a command door.
+//
+// In the simulation there is no broker (telemetry.cpp compiles an empty uplink under
+// RANCH_SIM), so the ground command channel that reaches this board on the ranch does
+// not exist in the browser -- the page can read the console and nothing else, which
+// made every lamp switch on the page a scene-only animation. This reads the other
+// direction of the same port the LIGHT frame is printed to, through the very
+// `onGroundCommand` the broker would call, so a verb the bench accepts and a verb the
+// console accepts cannot drift apart.
+//
+// ARDUINO only: the host sandbox drives `simCommand` from its own test, and giving
+// that build a stdin reader would make a unit test wait on a terminal.
+#if defined(RANCH_SIM)
+void simCommand(const char* cmd) { onGroundCommand(cmd, std::strlen(cmd)); }
+
+#if defined(ARDUINO)
+void consoleCommandPump() {
+    static char line[40];
+    static size_t n = 0;
+    while (Serial.available() > 0) {
+        const int c = Serial.read();
+        if (c < 0) break;
+        if (c == '\r') continue;                    // CRLF from a terminal
+        if (c == '\n') {
+            line[n] = '\0';
+            if (n) simCommand(line);
+            n = 0;
+            continue;
+        }
+        if (n < sizeof(line) - 1) line[n++] = static_cast<char>(c);
+        else n = 0;   // a line long enough to be nonsense: drop it, keep the port clean
+    }
+}
+#endif
+#endif
+
 void appSetup() {
     halInit();
     boot_ms = halMillis();
@@ -334,6 +377,9 @@ void appSetup() {
 
 void appLoop() {
 #if defined(RANCH_SIM)
+#if defined(ARDUINO)
+    consoleCommandPump();
+#endif
     halSimPump();
     runJobs();
     halDelayMs(50);

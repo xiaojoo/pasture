@@ -177,15 +177,32 @@ void publish() {
     telemetryPublish(r);
 }
 
+
+// What this board's programme actually is, as one self-describing string: a settings
+// row that shows the page's own number is not a readout of the valve controller.
+void publishLimits() {
+    char s[32];
+    std::snprintf(s, sizeof(s), "per%u/run%u/en%u",
+                  static_cast<unsigned>(prog.period_s), static_cast<unsigned>(prog.run_s),
+                  static_cast<unsigned>(prog.enabled ? 1u : 0u));
+    telemetrySetLimits(s);
+}
+
 void onGroundCommand(const char* payload, size_t len) {
     if (!payload || len == 0) return;
     char verb[20], value[32];
     size_t i = 0;
-    while (i < len && i < sizeof(verb) - 1 && payload[i] != '=' && payload[i] != '\n') {
-        verb[i] = payload[i];
-        ++i;
+    // A typed line often arrives padded: a terminal adds a space, a paste adds one.
+    // Skipping the padding is what makes `street=1` and ` street=1` one command.
+    while (i < len && (payload[i] == ' ' || payload[i] == '\t')) ++i;
+    // The read cursor and the write index are two things. With one variable doing
+    // both, a padded line left verb[0] uninitialised and the verb was compared
+    // against garbage -- which is how a verb this board knows came out refused.
+    size_t j = 0;
+    while (i < len && j < sizeof(verb) - 1 && payload[i] != '=' && payload[i] != '\n') {
+        verb[j++] = payload[i++];
     }
-    verb[i] = '\0';
+    verb[j] = '\0';
     size_t n = 0;
     if (i < len && payload[i] == '=') {
         ++i;
@@ -242,6 +259,8 @@ void onGroundCommand(const char* payload, size_t len) {
     }
     // A command that was not recognised is reported, not silently dropped: the
     // alternative is an operator believing the board has ignored them.
+    telemetryNoteAck(verb, value, taken);
+    publishLimits();
     telemetryEvent(taken ? "cmd" : "cmd-unknown");
 }
 
@@ -378,6 +397,35 @@ void controlTask(void*) {
 
 }  // namespace
 
+#if defined(RANCH_SIM)
+void simCommand(const char* cmd) { onGroundCommand(cmd, std::strlen(cmd)); }
+
+#if defined(ARDUINO)
+// The console's input, as a command door: in the simulation there is no broker, so
+// this is the only way the page can reach this board at all. Same parser the broker
+// calls, so a verb the bench takes and a verb the console takes cannot drift apart.
+// ARDUINO only: the host sandbox drives simCommand from its own test, and a stdin
+// reader there would make a unit test wait on a terminal.
+void consoleCommandPump() {
+    static char line[40];
+    static size_t n = 0;
+    while (Serial.available() > 0) {
+        const int c = Serial.read();
+        if (c < 0) break;
+        if (c == '\r') continue;
+        if (c == '\n') {
+            line[n] = '\0';
+            if (n) simCommand(line);
+            n = 0;
+            continue;
+        }
+        if (n < sizeof(line) - 1) line[n++] = static_cast<char>(c);
+        else n = 0;
+    }
+}
+#endif
+#endif
+
 void appSetup() {
     halInit();
     boot_ms = halMillis();
@@ -401,6 +449,7 @@ void appSetup() {
     senseInit();
     telemetryInit();
     paramsLoad();
+    publishLimits();
     valvesSetLimits(valve_limits);
     senseLoad();
     programmeInit(pstate);
@@ -425,6 +474,9 @@ void appSetup() {
 
 void appLoop() {
 #if defined(RANCH_SIM)
+#if defined(ARDUINO)
+    consoleCommandPump();
+#endif
     halSimPump();
     runJobs();
     halDelayMs(20);

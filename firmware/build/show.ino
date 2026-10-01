@@ -1,6 +1,6 @@
 // GENERATED FILE - do not edit, edit the project and re-run:
 //   node tools/bundle.mjs
-// Source: firmware/show + firmware/lib  (17 files, 164.8 KB before bundling)
+// Source: firmware/show + firmware/lib  (17 files, 167.6 KB before bundling)
 // The receiver, flight controller, airframe, strip and pack in hal_sim.cpp are what the programme is flown against.
 //
 // Build the same code for hardware with:  pio run -d firmware/show
@@ -1119,28 +1119,36 @@ inline int showSampleShape(ShowShape s, int n, float scale_m, float alt_m,
     const float d = -alt_m;                       // NED: up is negative
     switch (s) {
         case SHAPE_RING: {
-            // One circle; with more than one ring the outer ones are the same shape
-            // at a larger radius, which is how a "ring" formation stays legible at
-            // 100 aircraft instead of becoming one fat circle.
-            const int rings = count > 28 ? 3 : 1;
+            // Concentric rings, with the aircraft shared out by circumference -- the same
+            // rule as `showSampleShape()`'s ring case in `js/show/core.js`, and the two
+            // have to agree to the printed digit because `.probe/cross.sh` diffs them.
+            // Giving every ring the same number packed the inner circle 2.35x tighter than
+            // the outer (2.81 m against 6.65 m at 49 aircraft on an 18 m ring), which is a
+            // ring formation with no single pitch. Ring j carries weight j, so the arc gap
+            // is the same on every ring; the ring count comes from the aircraft count so
+            // the radial gap stays near that arc gap. One ring is already even and stays.
+            int rings = 1;
+            if (count > 28) {
+                rings = static_cast<int>(std::lround(
+                    (std::sqrt(1.0f + 4.0f * static_cast<float>(count) / SHOW_PI) - 1.0f) / 2.0f));
+                if (rings < 2) rings = 2;
+                if (rings > count) rings = count;
+            }
+            const long t = static_cast<long>(rings) * (rings + 1);
             int made = 0;
-            for (int r = 0; r < rings && made < count; ++r) {
-                // 0.4/0.7/1.0 of the requested half-extent: the outermost ring is the
-                // shape's own size, not one scale-unit beyond it.
-                // The outermost ring is the shape's own size and a single ring is
-                // that size too -- putting the only ring at 0.4 of it packed 24
-                // aircraft onto a 7 m circle, 1.9 m apart, which the density check
-                // then correctly refused.
-                const float radius = scale_m * (rings > 1 ? (0.4f + 0.6f * r / (rings - 1)) : 1.0f);
-                const int in_ring = (count - made) / (rings - r);
-                const int take = (r == rings - 1) ? (count - made) : in_ring;
+            int prev = 0;
+            for (int j = 1; j <= rings; ++j) {
+                const int upto = static_cast<int>(static_cast<long>(count) * j * (j + 1) / t);
+                const int take = upto - prev;
+                const float radius = scale_m * static_cast<float>(j) / static_cast<float>(rings);
                 for (int i = 0; i < take; ++i) {
-                    const float a = 2.0f * SHOW_PI * static_cast<float>(i) / take;
+                    const float a = 2.0f * SHOW_PI * static_cast<float>(i) / static_cast<float>(take);
                     out[made].n = radius * std::sin(a);
                     out[made].e = radius * std::cos(a);
                     out[made].d = d;
                     ++made;
                 }
+                prev = upto;
             }
             return made;
         }
@@ -1158,13 +1166,57 @@ inline int showSampleShape(ShowShape s, int n, float scale_m, float alt_m,
             return count;
         }
         case SHAPE_HEART: {
-            // The standard parametric heart, scaled to the same half-extent as the
-            // other shapes so a show's geofence does not move between acts.
+            // Sampled by equal **arc length**, not equal parameter. The parametric
+            // heart's speed collapses at the bottom tip and at the dimple on top, so
+            // equal-parameter steps packed two aircraft 0.59 m apart inside a 2 m rule
+            // (24 aircraft, 18 m shape) -- the show was refused and the reason looked
+            // like a transition problem when it was the outline itself. Walking the
+            // curve by length gives the same show 3.52 m.
+            //
+            // The 720-step table and the order of the arithmetic are the same on the
+            // ground-station side (js/show/core.js), because the cross-check compares
+            // the two implementations to the centimetre; do not "optimise" one side.
+            constexpr int STEPS = 720;
+            auto at = [](float t, float& x, float& y) {
+                const float s = std::sin(t);
+                x = 16.0f * s * s * s;
+                y = 13.0f * std::cos(t) - 5.0f * std::cos(2.0f * t)
+                        - 2.0f * std::cos(3.0f * t) - std::cos(4.0f * t);
+            };
+            // Pass one: how long the outline is. Pass two: emit `count` points spaced
+            // that many metres apart along it. Two passes over 720 cheap evaluations,
+            // once per act at plan load -- no table on the stack, which matters on a
+            // 4 KB task.
+            float total = 0.0f;
+            float px = 0.0f, py = 0.0f, cx = 0.0f, cy = 0.0f;
+            at(0.0f, px, py);
+            for (int i = 1; i <= STEPS; ++i) {
+                at(2.0f * SHOW_PI * static_cast<float>(i) / static_cast<float>(STEPS), cx, cy);
+                const float dx = cx - px, dy = cy - py;
+                total += std::sqrt(dx * dx + dy * dy);
+                px = cx;
+                py = cy;
+            }
+            const float step = total / static_cast<float>(count);
+            float ax = 0.0f, ay = 0.0f, bx = 0.0f, by = 0.0f, walked = 0.0f;
+            at(0.0f, ax, ay);
+            int seg = 0;
             for (int i = 0; i < count; ++i) {
-                const float t = 2.0f * SHOW_PI * static_cast<float>(i) / count;
-                const float x = 16.0f * std::pow(std::sin(t), 3.0f);
-                const float y = 13.0f * std::cos(t) - 5.0f * std::cos(2 * t)
-                        - 2.0f * std::cos(3 * t) - std::cos(4 * t);
+                const float want = static_cast<float>(i) * step;
+                for (;;) {
+                    at(2.0f * SHOW_PI * static_cast<float>(seg + 1) / static_cast<float>(STEPS), bx, by);
+                    const float dx = bx - ax, dy = by - ay;
+                    const float len = std::sqrt(dx * dx + dy * dy);
+                    if (walked + len > want || seg + 1 >= STEPS) break;
+                    walked += len;
+                    ax = bx;
+                    ay = by;
+                    ++seg;
+                }
+                const float dx = bx - ax, dy = by - ay;
+                const float len = std::sqrt(dx * dx + dy * dy);
+                const float f = len > 0.0f ? (want - walked) / len : 0.0f;
+                const float x = ax + dx * f, y = ay + dy * f;
                 // Divided by 17, not 16: this parametrisation reaches -17 below the
                 // origin and +12 above it, so the naive normalisation put a 19 m
                 // point on an 18 m shape and the geofence check caught it.

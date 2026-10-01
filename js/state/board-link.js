@@ -2,6 +2,7 @@
 // a board that is running is the authority for its subsystem, and one that is not
 // running is reported as absent rather than quietly replaced by the app.
 import { activePreset, sendSerialCommand, telemetry } from '../ui/esp-panel.js';
+import { boardCmd } from '../ui/cmd.js';
 import { PRESETS } from '../state/firmware.js';
 import { applyBoardCommand, ROUTE, drone, setCommandSender } from '../world/drone.js';
 import { applyBoardWater, waterBoardLive } from '../state/water.js';
@@ -14,7 +15,12 @@ import { waterSystem } from '../world/water-tower.js';
 // The drone's command writer, installed once at module load. `world/drone.js` decides
 // *what* a verb means and this decides *how* it reaches the board -- the simulator's
 // serial console, typed into -- so the flight state stays free of the UI.
-setCommandSender(cmd => sendSerialCommand('drone', cmd));
+// The stick lines are the one command stream this board answers somewhere else: `ovr=`
+// and `rcwhy=` say what it is doing with them in every frame, and it puts no `ack=` on a
+// line that arrives six times a second. So the buttons go through the table that waits
+// for the ack and the drawer can say what came home; the sticks go straight to the
+// console, where the panel already reads the two fields that answer them.
+setCommandSender(line => (/^rc=/.test(line) ? sendSerialCommand('drone', line) : boardCmd('drone', line)));
 
 // The same writer on the window, so the console can drive a board by hand ("does the
 // firmware answer `arm=1`?") and so the refusal path -- no simulator, board not running
@@ -33,7 +39,7 @@ const MENU = {
   fire: document.getElementById('menuFire'),
 };
 
-const MODE_TEXT = { IDLE: '待命', PATROL: '巡航', TRANSIT: '巡航', DWELL: '悬停', DESCEND: '降落', RETURN: '返航', GROUND: '地面', LANDED: '待命' };
+const MODE_TEXT = { IDLE: '待命', PATROL: '巡航', TRANSIT: '巡航', DWELL: '悬停', HOLD: '摇杆操纵', LOITER: '已取消自动 · 悬停待命', DESCEND: '降落', RETURN: '返航', GROUND: '地面', LANDED: '待命' };
 
 function syncMenu() {
   if (MENU.board) {

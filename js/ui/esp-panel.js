@@ -8,6 +8,7 @@
 // dock outside the drawer -- the drawer body is replaced on every open, and a
 // re-inserted iframe would reload and kill the running simulation.
 import { setHouseLights, setStreetLights, streetLightOn, houseLightOn, reapplyFeeders } from '../state/time.js';
+import { cmd, paintAck } from './cmd.js';
 import { PRESETS, parseTelemetry, lastTelemetryLine, presetCode } from '../state/firmware.js';
 import { setBoardUp } from '../state/boards.js';
 import { cardGrid, cell, put, statusLine } from './status-cards.js';
@@ -140,10 +141,16 @@ export function sendSerialCommand(board, line) {
   const doc = simDoc(board);
   if (!doc) return `${board} 的仿真窗口读不到`;
 
-  const input = [...doc.querySelectorAll('input[type=text]')]
-    .find(i => !/搜索|search/i.test(i.placeholder || '') && !i.disabled);
-  if (!input) return `${board} 的串行输入框没找到`;
-  if (input.disabled) return `${board} 的串行输入框是禁用的（板子没在跑）`;
+  // "There is a console box but it is greyed out" and "this window has no console box"
+  // are different facts and the operator checks different things for each. The old order
+  // looked for an enabled input first and then tested `disabled` on the result, so the
+  // greyed-out case fell through to 「没找到」 -- a wrong answer about the wire.
+  const cands = [...doc.querySelectorAll('input[type=text]')]
+    .filter(i => !/搜索|search/i.test(i.placeholder || ''));
+  const input = cands.find(i => !i.disabled);
+  if (!input) return cands.length
+    ? `${board} 的串行输入框是禁用的（这块板的仿真正没在跑：等它编译完并按过运行）`
+    : `${board} 的串行控制台还没建起来（仿真窗口刚开，等它把固件跑起来再按）`;
 
   const row = input.parentElement;
   const sel = row && lineEndingSelect(row);
@@ -723,6 +730,8 @@ function renderStatus() {
   panel.line.textContent = !p ? '还没有选中板卡：打开任意一个子系统抽屉就会启动它的板子'
     : `板卡 ${p.kit || p.board} · 固件 ${p.src} · 引脚定义取自 firmware/${p.src.replace(/^.*\/build\/|\.ino$/g, '')}/src/board.h` +
       (f && f.skipped && f.skipped.length ? ` · 画布上没有对应真实件：${f.skipped.length} 路（见 BOM）` : '');
+
+  paintAck('light', panel.lampAck);
 }
 
 // The parts table: what this board's board.h actually wires, and what the board is
@@ -1052,6 +1061,15 @@ function driveFromBoard() {
   setHouseLights(st.room.on);
 }
 
+// What the lighting board's `time=` verb asks for: year-month-dayThour:minute:second
+// in this machine's local clock, which is the shape its sscanf accepts and checks.
+function ranchClock() {
+  const p = n => String(n).padStart(2, '0');
+  const d = new Date();
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}` +
+    `T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
 /* ---------- board picker: a self-drawn listbox, not a native <select> ------ */
 function closePickers(except) {
   for (const w of document.querySelectorAll('.esp-pick.open')) if (w !== except) w.classList.remove('open');
@@ -1121,6 +1139,24 @@ function renderPicker() {
 }
 
 /* ---------- panel DOM ---------- */
+// The two lighting switches are markup inside the 配电 drawer's body. Their inline
+// handler only moves the scene, so the wire has to be added the moment those nodes
+// exist -- which is every time that drawer is opened, because opening a drawer
+// rewrites its body.
+export function wireLightingSwitches() {
+  const swStreet = document.getElementById('swStreet');
+  if (swStreet && !swStreet.dataset.wired) {
+    swStreet.dataset.wired = '1';
+    swStreet.addEventListener('click', () => cmd.lightStreet(streetLightOn));
+  }
+  const swHouse = document.getElementById('swHouse');
+  if (swHouse && !swHouse.dataset.wired) {
+    swHouse.dataset.wired = '1';
+    swHouse.addEventListener('click', () => cmd.lightHouse(houseLightOn));
+  }
+  return !!swStreet;
+}
+
 export function mountEspPanel(host) {
   ensureDock();
   host.textContent = '';
@@ -1131,6 +1167,28 @@ export function mountEspPanel(host) {
   host.appendChild(grid);
   const line = statusLine(host, '');
 
+  // The two switches above ask the lighting board; what it did about the asking is
+  // written here, in the board's own words from its next frame.
+  const lampCtl = el('div', 'esp-ctl');
+  lampCtl.appendChild(el('span', 'dr-lbl', '照明指令'));
+  for (const [labelText, send] of [['光控自动', cmd.lightAuto], ['解除闭锁', cmd.lightClear], ['对时', null]]) {
+    const b = el('button', 'esp-btn', labelText);
+    b.addEventListener('click', () => (send ? send() : cmd.lightClock(ranchClock())));
+    lampCtl.appendChild(b);
+  }
+  const lampAck = el('span', 'cmd-line');
+  lampCtl.appendChild(lampAck);
+  host.appendChild(lampCtl);
+  const lampNote = el('small', 'esp-note',
+    '对时：把这台电脑的时刻写给照明板的 RTC（time=年-月-日T时:分:秒），板子的钟在帧里以 t= 报回来');
+  host.appendChild(lampNote);
+
+  // The switches are the drawer's own markup and flip the scene on click; this adds
+  // the wire behind the flip. They are wired from drawer.js, not from here: their two
+  // nodes are born in the 配电 drawer's markup, and every drawer open rebuilds that
+  // body, so a listener attached at board-panel mount time was attached to a node that
+  // had already been replaced. The inline handler runs first, so the state read here is
+  // the one the operator just asked for.
   const wrap = el('div', 'esp-panel');
   const ctl = el('div', 'esp-ctl');
   const pickerHost = el('div', 'esp-pickhost');
@@ -1175,7 +1233,7 @@ export function mountEspPanel(host) {
 
   host.appendChild(wrap);
   panel = { svgHost, harnessHost, harnessKey: '', tbody, status, firmware, wires,
-            period, frames, signal, line, note, pickerHost };
+            period, frames, signal, line, note, pickerHost, lampAck };
   renderPicker();
 
   // The drawer markup was just rebuilt, so push the board's lamp state through

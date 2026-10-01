@@ -50,6 +50,12 @@ void telemetrySetLink(const char* host, uint16_t port, const char* client_id);
 
 using CommandHandler = void (*)(const char* payload, size_t len);
 void telemetrySetCommandHandler(CommandHandler fn);
+// The programme as this board holds it (`per90/run20/en1`), published as `lim=` so a
+// settings row can show the valve controller's number rather than the page's.
+void telemetrySetLimits(const char* text);
+// Published as `ack=ok:<verb>` / `ack=no:<verb>` for a few seconds after a command.
+void telemetryNoteAck(const char* verb, const char* value, bool ok);
+
 
 void telemetryPublish(const WaterReport& r);
 

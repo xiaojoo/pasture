@@ -317,7 +317,11 @@
 }
 
 
-.esp-btn[aria-pressed="true"]{
+/* 自动巡检 is excluded on purpose: it is one button with two ends, and a control that
+   stays filled in after the press reads as one stuck down. Its state is the sentence above
+   the pad, which now never gets overwritten; the aria-pressed attribute stays on the button
+   because that is what the state actually is. */
+.esp-btn[aria-pressed="true"]:not(.dr-toggle){
     background:rgba(110,231,160,.18);
     border-color:rgba(110,231,160,.5);
     color:#6ee7a0;
@@ -451,3 +455,29 @@
     font-size:9.5px;
     color:#6f8095;
 }
+
+/* What a board answered, sitting next to the button that asked. The colours are the
+   ones the drone panel already uses, so one colour means one thing in all five drawers. */
+.cmd-line{font-size:11.5px;color:#8fa3b8;}
+.cmd-line.cmd-ok{color:#6ee7a0;}
+.cmd-line.cmd-warn{color:#ffcf6b;}
+
+/* Two-step confirmation: the button says what the second click will do, and stops
+   saying it if nobody answers inside the window. */
+.esp-btn.dr-armed{
+    background:rgba(255,196,93,.16);
+    border-color:rgba(255,196,93,.55);
+    color:#ffcf6b;
+}
+
+/* The thresholds are not something to poke at while the ranch is drawing power, so
+   they sit behind a line that says where the numbers come from. */
+.pw-limits{margin:8px 0 0;}
+.pw-limits summary{
+    font-size:11.5px;
+    color:#8fa3b8;
+    cursor:pointer;
+    list-style:none;
+}
+.pw-limits summary::-webkit-details-marker{display:none;}
+.pw-limits[open] summary{color:#eaf7ef;margin-bottom:6px;}

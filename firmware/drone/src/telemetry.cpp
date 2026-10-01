@@ -15,7 +15,15 @@ constexpr uint16_t LOG_SLOTS = 16;
 constexpr size_t LOG_SLOT = 128;
 // Sized for the longest frame below with every optional field present. A frame
 // that outgrows it is dropped and counted, never truncated.
-constexpr size_t FRAME_CAP = 208;
+constexpr size_t FRAME_CAP = 240;
+
+// The board's answer to the last line anybody typed at it, kept for a few seconds so
+// a dashboard polling at 2 Hz cannot miss it. The lamps on the pad move either way;
+// only this field separates "the FC did that" from "the page did that to itself".
+constexpr uint32_t ACK_HOLD_MS = 6000;
+char ack_verb[40] = "";
+bool ack_ok = false;
+uint32_t ack_ms = 0;
 
 UplinkStats up{};
 char frame[FRAME_CAP];
@@ -104,6 +112,8 @@ void telemetryInit() {
     up = UplinkStats{};
     frame[0] = '\0';
     log_head = log_tail = log_len = 0;
+    // A board restart must not come back still answering somebody's last command.
+    ack_verb[0] = '\0';
 }
 
 void telemetrySetLink(const char* host, uint16_t port, const char* client_id) {
@@ -114,6 +124,15 @@ void telemetrySetLink(const char* host, uint16_t port, const char* client_id) {
 }
 
 void telemetrySetCommandHandler(CommandHandler fn) { cmd_fn = fn; }
+
+void telemetryNoteAck(const char* verb, const char* value, bool ok) {
+    // The verb alone cannot answer "what did the board do with the number"; a launch
+    // request and a refusal look the same on the console.
+    if (value && *value) std::snprintf(ack_verb, sizeof(ack_verb), "%s=%s", verb, value);
+    else std::snprintf(ack_verb, sizeof(ack_verb), "%s", verb);
+    ack_ok = ok;
+    ack_ms = halMillis();
+}
 
 void telemetryPublish(const MissionStatus& ms, const AirState& air) {
     VideoStats v{};
@@ -153,10 +172,23 @@ void telemetryPublish(const MissionStatus& ms, const AirState& air) {
     w.add("shots", static_cast<int>(ms.captures));
     w.add("fps", v.fps);
     w.add("safe", safetyIsSafe() ? 1 : 0);
+    // Who is flying: 1 while this board is forwarding the ground station's sticks to
+    // the FC. Always present, because "the stick does nothing" and "nobody asked for
+    // the stick" are different facts and a missing field cannot tell them apart.
+    w.add("ovr", ms.rc_live ? 1 : 0);
     w.add("link", wifiUp() ? "up" : "down");
     w.add("up", static_cast<int>(air.uptime_ms / 1000u));
+    if (*ms.rc_why) w.add("rcwhy", ms.rc_why);
     if (*safetyReason()) w.add("why", safetyReason());
     if (ms.failsafe != Action::Continue) w.add("fs", actionName(ms.failsafe));
+    // The answer to the last command, for as long as it is still the answer. The stick
+    // channel is deliberately not acked line by line: it is re-sent every 150 ms while
+    // a pad is held and `ovr=`/`rcwhy=` already say what it is doing.
+    if (*ack_verb && static_cast<int32_t>(halMillis() - ack_ms) < static_cast<int32_t>(ACK_HOLD_MS)) {
+        char ack[56];
+        std::snprintf(ack, sizeof(ack), "%s:%s", ack_ok ? "ok" : "no", ack_verb);
+        w.add("ack", ack);
+    }
     w.endLine();
 
     if (w.overflow()) {

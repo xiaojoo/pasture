@@ -303,18 +303,15 @@ ${waterSystem.level}
 </div>
 
 <div class="device-desc">
-当前频率 42 Hz
+场景管路：通水
 </div>
 
 </div>
 
 <div
+id="swPump"
 class="switch ${waterSystem.pumpOn ? "on":""}"
-onclick="
-waterSystem.pumpOn=!waterSystem.pumpOn;
-this.classList.toggle('on');
-updateWaterVisual();
-">
+>
 </div>
 
 </div>
@@ -333,18 +330,15 @@ updateWaterVisual();
 </div>
 
 <div class="device-desc">
-自动调节
+场景管路：通水
 </div>
 
 </div>
 
 <div
+id="swValve"
 class="switch ${waterSystem.valveOn ? "on":""}"
-onclick="
-waterSystem.valveOn=!waterSystem.valveOn;
-this.classList.toggle('on');
-updateWaterVisual();
-">
+>
 </div>
 
 </div>

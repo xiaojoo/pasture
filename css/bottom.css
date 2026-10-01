@@ -1,13 +1,17 @@
 /* =========================================================
-   BOTTOM
+   CAMERA ROW
 ========================================================= */
 
+/* The name still says `bottom`; at desktop widths the row is anchored to the top instead,
+   because it is a view control and belongs with the rest of the header. The narrow-screen
+   block at the end of this file puts it back on the bottom edge -- and lifts it clear of the
+   choreography desk, which is what show.css used to do for every width. */
 .bottom{
     position:absolute;
 
     z-index:10;
 
-    bottom:22px;
+    top:20px;
     left:50%;
 
     transform:translateX(-50%);
@@ -46,4 +50,18 @@
 .bottom-btn:hover{
     color:#e8fff0;
     background:rgba(255,255,255,.055);
+}
+
+/* The header has room in the middle only while its own content is out of the way: the brand
+   ends at x 276 and the status pills start at x = width - 431, so a 333 px row centred in a
+   1195 px window touches the pills (measured: at 1100 the two overlap by 48 px and one pill
+   stops taking clicks). Below that the row goes back to the bottom edge, which is the one
+   place measured free at every width -- at 650 and 420 the top-centre would sit on the
+   subsystem column and the day/night switch instead. */
+@media(max-width:1240px){
+    .bottom{
+        top:auto;
+        bottom:calc(22px + var(--show-dock,0px));
+        transition:bottom .18s ease;
+    }
 }

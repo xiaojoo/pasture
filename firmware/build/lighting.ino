@@ -1,6 +1,6 @@
 // GENERATED FILE - do not edit, edit the project and re-run:
 //   node tools/bundle.mjs
-// Source: firmware/lighting + firmware/lib  (12 files, 64.1 KB before bundling)
+// Source: firmware/lighting + firmware/lib  (12 files, 67.7 KB before bundling)
 // The sky in hal_sim.cpp is computed a different way from lib/astro.h on purpose.
 //
 // Build the same code for hardware with:  pio run -d firmware/lighting
@@ -1097,6 +1097,9 @@ void telemetrySetLink(const char* host, uint16_t port, const char* client_id);
 
 using CommandHandler = void (*)(const char* payload, size_t len);
 void telemetrySetCommandHandler(CommandHandler fn);
+// The board's answer to the last line typed at its console: published as
+// `ack=ok:<verb>` / `ack=no:<verb>` for a few seconds.
+void telemetryNoteAck(const char* verb, const char* value, bool ok);
 
 void telemetryPublish(const LightReport& r);
 void telemetryEvent(const char* kind);
@@ -1124,6 +1127,14 @@ char broker_host[64] = "";
 char broker_client[24] = "light";
 uint16_t broker_port = MQTT_PORT;
 CommandHandler cmd_fn = nullptr;
+
+// The board's answer to the last line anybody typed at it, kept for a few seconds so
+// a dashboard polling at 2 Hz cannot miss it. `ack=ok:street` and `ack=no:street`
+// look identical on the console and on a wire; only this field tells them apart.
+constexpr uint32_t ACK_HOLD_MS = 6000;
+char ack_verb[40] = "";
+bool ack_ok = false;
+uint32_t ack_ms = 0;
 
 // Minutes past local midnight as hh:mm, which is what a person reading the
 // dashboard wants; the float version is what the policy works in.
@@ -1198,6 +1209,10 @@ bool brokerUp() { return broker.connected(); }
 void telemetryInit() {
     up = UplinkStats{};
     frame[0] = '\0';
+    // A board restart must not come back still answering somebody's last command.
+    ack_verb[0] = '\0';
+    ack_ok = false;
+    ack_ms = 0;
 }
 
 void telemetrySetLink(const char* host, uint16_t port, const char* client_id) {
@@ -1208,6 +1223,15 @@ void telemetrySetLink(const char* host, uint16_t port, const char* client_id) {
 }
 
 void telemetrySetCommandHandler(CommandHandler fn) { cmd_fn = fn; }
+
+void telemetryNoteAck(const char* verb, const char* value, bool ok) {
+    // The verb alone cannot answer "what value did the board keep"; an operator
+    // changing a trip threshold needs the number back, not just a yes.
+    if (value && *value) std::snprintf(ack_verb, sizeof(ack_verb), "%s=%s", verb, value);
+    else std::snprintf(ack_verb, sizeof(ack_verb), "%s", verb);
+    ack_ok = ok;
+    ack_ms = halMillis();
+}
 
 void telemetryPublish(const LightReport& r) {
     char rise[12], set[12];
@@ -1236,6 +1260,14 @@ void telemetryPublish(const LightReport& r) {
     else if (r.fault.barn_over) w.add("fault", "OVERCURRENT");
     else if (r.fault.driver_contact) w.add("fault", "DRIVER");
     w.add("h_street", static_cast<int>(r.burn_tenths[LAMP_STREET] / 36000u));
+    // The answer to the last command, for as long as it is still the answer. A page
+    // that only sees the lamps move cannot tell "the board did that" from "the page
+    // did that to itself", which is the difference between a control and a painting.
+    if (*ack_verb && static_cast<int32_t>(halMillis() - ack_ms) < static_cast<int32_t>(ACK_HOLD_MS)) {
+        char ack[56];
+        std::snprintf(ack, sizeof(ack), "%s:%s", ack_ok ? "ok" : "no", ack_verb);
+        w.add("ack", ack);
+    }
     w.endLine();
 
     if (w.overflow()) {
@@ -1797,11 +1829,17 @@ void onGroundCommand(const char* payload, size_t len) {
     if (!payload || len == 0) return;
     char verb[16], value[24];
     size_t i = 0;
-    while (i < len && i < sizeof(verb) - 1 && payload[i] != '=' && payload[i] != '\n') {
-        verb[i] = payload[i];
-        ++i;
+    // A typed line often arrives padded: a terminal adds a space, a paste adds one.
+    // Skipping the padding is what makes `street=1` and ` street=1` one command.
+    while (i < len && (payload[i] == ' ' || payload[i] == '\t')) ++i;
+    // The read cursor and the write index are two things. With one variable doing
+    // both, a padded line left verb[0] uninitialised and the verb was compared
+    // against garbage -- which is how a verb this board knows came out refused.
+    size_t j = 0;
+    while (i < len && j < sizeof(verb) - 1 && payload[i] != '=' && payload[i] != '\n') {
+        verb[j++] = payload[i++];
     }
-    verb[i] = '\0';
+    verb[j] = '\0';
     size_t n = 0;
     if (i < len && payload[i] == '=') {
         ++i;
@@ -1841,6 +1879,7 @@ void onGroundCommand(const char* payload, size_t len) {
     } else {
         taken = false;
     }
+    telemetryNoteAck(verb, value, taken);
     telemetryEvent(taken ? "cmd" : "cmd-unknown");
 }
 
@@ -1892,6 +1931,42 @@ void lightTask(void*) {
 
 }  // namespace
 
+// The console's input, as a command door.
+//
+// In the simulation there is no broker (telemetry.cpp compiles an empty uplink under
+// RANCH_SIM), so the ground command channel that reaches this board on the ranch does
+// not exist in the browser -- the page can read the console and nothing else, which
+// made every lamp switch on the page a scene-only animation. This reads the other
+// direction of the same port the LIGHT frame is printed to, through the very
+// `onGroundCommand` the broker would call, so a verb the bench accepts and a verb the
+// console accepts cannot drift apart.
+//
+// ARDUINO only: the host sandbox drives `simCommand` from its own test, and giving
+// that build a stdin reader would make a unit test wait on a terminal.
+#if defined(RANCH_SIM)
+void simCommand(const char* cmd) { onGroundCommand(cmd, std::strlen(cmd)); }
+
+#if defined(ARDUINO)
+void consoleCommandPump() {
+    static char line[40];
+    static size_t n = 0;
+    while (Serial.available() > 0) {
+        const int c = Serial.read();
+        if (c < 0) break;
+        if (c == '\r') continue;                    // CRLF from a terminal
+        if (c == '\n') {
+            line[n] = '\0';
+            if (n) simCommand(line);
+            n = 0;
+            continue;
+        }
+        if (n < sizeof(line) - 1) line[n++] = static_cast<char>(c);
+        else n = 0;   // a line long enough to be nonsense: drop it, keep the port clean
+    }
+}
+#endif
+#endif
+
 void appSetup() {
     halInit();
     boot_ms = halMillis();
@@ -1925,6 +2000,9 @@ void appSetup() {
 
 void appLoop() {
 #if defined(RANCH_SIM)
+#if defined(ARDUINO)
+    consoleCommandPump();
+#endif
     halSimPump();
     runJobs();
     halDelayMs(50);

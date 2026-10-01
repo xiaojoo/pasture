@@ -30,6 +30,7 @@ enum MavMsg : uint32_t {
     MSG_MISSION_ACK            = 47,
     MSG_MISSION_CURRENT        = 42,
     MSG_MISSION_START          = 23,
+    MSG_RC_CHANNELS_OVERRIDE   = 70,
     MSG_BATTERY_STATUS         = 147,
     MSG_RADIO_STATUS           = 185,
     MSG_STATUSTEXT             = 253,
@@ -189,6 +190,15 @@ struct CommandLongTx {
     float p[7];
     uint16_t command;
     uint8_t target_sys, target_comp, confirmation;
+    void pack(MavWriter& w) const;
+};
+
+// Stick axes to the flight controller. Channels are PPM microseconds: 0 means
+// "release this channel back to the radio", UINT16_MAX (65535) means "ignore this
+// field", and a real value sits between 1000 and 2000.
+struct RcOverrideTx {
+    uint16_t chan[18];
+    uint8_t target_sys, target_comp;
     void pack(MavWriter& w) const;
 };
 

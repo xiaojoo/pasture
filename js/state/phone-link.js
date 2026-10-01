@@ -9,6 +9,7 @@
 import { telemetry, boardStatusText } from '../ui/esp-panel.js';
 import { boardUp } from './boards.js';
 import { drone, setManualAxes, pilotCommand } from '../world/drone.js';
+import { cmd } from '../ui/cmd.js';
 import { waterSystem } from '../world/water-tower.js';
 import { barnSchedule, setBarnSchedule, setHouseSupply } from './water.js';
 import { powerGrid } from './power.js';
@@ -26,38 +27,42 @@ const CMDS = {
     takeoff: () => pilotCommand('takeoff'),
     patrol: () => pilotCommand('patrol'),
     hover: () => pilotCommand('hover'),
+    resume: () => pilotCommand('resume'),
+    // The three the firmware has always accepted. They have no local scene action, so
+    // they go straight to the board and the drawer's ack line is what says whether it
+    // landed -- which is also what the phone's 「板子回话」 row reads.
+    arm: () => cmd.droneVerb('arm=1'),
+    safe: () => cmd.droneVerb('safe=1'),
+    camera: () => cmd.droneVerb('camera=1'),
     rtl: () => pilotCommand('rtl'),
     land: () => pilotCommand('land'),
     axes: v => setManualAxes({ fwd: num(v.fwd), side: num(v.side), climb: num(v.climb), yaw: num(v.yaw) }),
   },
   light: {
-    street: v => setStreetLights(!!v),
-    house: v => setHouseLights(!!v),
+    street: v => { setStreetLights(!!v); cmd.lightStreet(!!v); },
+    house: v => { setHouseLights(!!v); cmd.lightHouse(!!v); },
   },
   water: {
-    barn: v => setBarnSchedule({ on: !!v }),
-    house: v => setHouseSupply(!!v),
-    period: v => setBarnSchedule({ periodSec: clamp(num(v), 4, 120) }),
-    run: v => setBarnSchedule({ runSec: clamp(num(v), 1, 60) }),
+    barn: v => { setBarnSchedule({ on: !!v }); cmd.waterBarn(!!v); },
+    house: v => { setHouseSupply(!!v); cmd.waterHouse(!!v); },
+    period: v => { setBarnSchedule({ periodSec: clamp(num(v), 4, 120) }); cmd.waterPeriod(num(v)); },
+    run: v => { setBarnSchedule({ runSec: clamp(num(v), 1, 60) }); cmd.waterRun(num(v)); },
   },
   scene: {
     night: () => setTimeMode('night'),
     day: () => setTimeMode('day'),
   },
   power: {
-    reclose: none('浏览器没有到这块板的下行通道：硬件上发 MQTT ranch/power/cmd=reclose'),
-    resume: none('浏览器没有到这块板的下行通道：硬件上发 MQTT ranch/power/cmd=resume'),
+    reclose: () => cmd.powerReclose(),
+    resume: () => cmd.powerResume(),
   },
   fire: {
-    silence: none('消防板的静音是面板钥匙旁的实体按钮，浏览器按不动'),
-    reset: none('消防板的复位同理：要先确认报警原因已清除'),
+    silence: () => cmd.fireSilence(),
+    // A remote reset goes through the same gate as the key by the door, so the
+    // board can and does refuse it: the refusal comes back as ack=no:reset.
+    reset: () => cmd.fireReset(),
   },
 };
-
-function none(why) {
-  const f = () => ({ refused: why });
-  return f;
-}
 
 const num = v => (Number.isFinite(Number(v)) ? Number(v) : 0);
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));

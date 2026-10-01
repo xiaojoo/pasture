@@ -363,6 +363,35 @@ int main() {
           "and the log has to show that");
     CHECK(rkb.find("arm", armkb) && isWord(armkb, "0"), "and says it is bypassed");
 
+
+    // --- the console answers: one verb it took, one it never heard of ---------
+    std::printf("console answers: the panel answers\n");
+    appSetup();
+    simCommand("test");
+    runFor(2);
+    CHECK(std::strstr(telemetryLastFrame(), ",ack=ok:test") != nullptr,
+          "the frame names the command this board carried out");
+    simCommand("nonesuch=1");
+    runFor(2);
+    CHECK(std::strstr(telemetryLastFrame(), ",ack=no:nonesuch") != nullptr,
+          "and says so when it does not know the verb");
+    simCommand(" confirm=60");        // the same verb with the padding a terminal adds
+    runFor(2);
+    CHECK(std::strstr(telemetryLastFrame(), ",ack=ok:confirm=60") != nullptr,
+          "a padded verb is the same command");
+
+    // --- the timers are the panel's, not the page's --------------------------
+    CHECK(std::strstr(telemetryLastFrame(), ",lim=cfm") != nullptr,
+          "the frame carries the timers this panel is running");
+    simCommand("confirm=45");
+    runFor(2);
+    CHECK(std::strstr(telemetryLastFrame(), "cfm45/") != nullptr,
+          "a changed alarm-confirm window reads back from the panel");
+    simCommand("confirm=900");        // outside the 5..300 this panel accepts
+    runFor(2);
+    CHECK(std::strstr(telemetryLastFrame(), "cfm45/") != nullptr &&
+          std::strstr(telemetryLastFrame(), "cfm900/") == nullptr,
+          "and a window it refused did not move");
     std::printf("\n%d checks, %d failures\n", checks, fails);
     return fails ? 1 : 0;
 }

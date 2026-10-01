@@ -379,6 +379,35 @@ int main() {
     halGrid(g6);
     CHECK(g6.pump_energised, "and closes it again");
 
+
+    // --- the console answers: one verb it took, one it never heard of ---------
+    std::printf("console answers: the switchboard answers\n");
+    appSetup();
+    simCommand("reclose");
+    runFor(2);
+    CHECK(std::strstr(telemetryLastFrame(), ",ack=ok:reclose") != nullptr,
+          "the frame names the command this board carried out");
+    simCommand("nonesuch=1");
+    runFor(2);
+    CHECK(std::strstr(telemetryLastFrame(), ",ack=no:nonesuch") != nullptr,
+          "and says so when it does not know the verb");
+    simCommand(" shed=70");        // the same verb with the padding a terminal adds
+    runFor(2);
+    CHECK(std::strstr(telemetryLastFrame(), ",ack=ok:shed=70") != nullptr,
+          "a padded verb is the same command");
+
+    // --- the thresholds are the board's, not the page's ----------------------
+    CHECK(std::strstr(telemetryLastFrame(), ",lim=uv") != nullptr,
+          "the frame carries what this cabinet will trip on");
+    simCommand("uv=0.72");
+    runFor(2);
+    CHECK(std::strstr(telemetryLastFrame(), "uv0.72/") != nullptr,
+          "a changed threshold reads back from the board");
+    simCommand("uv=1.7");           // outside the range this board accepts
+    runFor(2);
+    CHECK(std::strstr(telemetryLastFrame(), "uv0.72/") != nullptr &&
+          std::strstr(telemetryLastFrame(), "uv1.70/") == nullptr,
+          "and a threshold it refused did not move");
     std::printf("\n%d checks, %d failures\n", checks, fails);
     return fails ? 1 : 0;
 }

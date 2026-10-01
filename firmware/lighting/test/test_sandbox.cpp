@@ -22,6 +22,7 @@
 namespace ranch {
 void appSetup();
 void appLoop();
+void simCommand(const char*);
 }  // namespace ranch
 
 using namespace ranch;
@@ -168,6 +169,23 @@ int main() {
     CHECK(blind.street_on_min < 0, "with no clock nothing is scheduled");
     CHECK(std::strstr(blind.last, "clock=unset") != nullptr, "and the board says why");
 
+
+    // --- the console answers: one verb it took, one it never heard of ---------
+    std::printf("console answers: the lamps answer\n");
+    appSetup();
+    simCommand("street=1");
+    for (int i = 0; i < 24; ++i) appLoop();   // 50 ms per loop
+    CHECK(std::strstr(telemetryLastFrame(), ",ack=ok:street") != nullptr,
+          "the frame names the command this board carried out");
+    simCommand("nonesuch=1");
+    for (int i = 0; i < 24; ++i) appLoop();   // 50 ms per loop
+    CHECK(std::strstr(telemetryLastFrame(), ",ack=no:nonesuch") != nullptr,
+          "and says so when it does not know the verb");
+    simCommand(" street=1");      // the padding a terminal or a paste adds
+    for (int i = 0; i < 24; ++i) appLoop();
+    CHECK(std::strstr(telemetryLastFrame(), ",ack=ok:street") != nullptr &&
+          std::strstr(telemetryLastFrame(), "ok: street") == nullptr,
+          "a padded verb is the same command, not a refusal with a space in it");
     std::printf("\n%d checks, %d failures\n", checks, fails);
     return fails ? 1 : 0;
 }

@@ -5,8 +5,25 @@
 // claims to control a riser the board cannot reach.
 import { fireAlertText, fireAlarmCount, fireHealthyLoops, firePanel, fireStale, ZONE_NAMES } from '../state/fire.js';
 import { waterSystem } from '../world/water-tower.js';
-import { boardStatusText } from './esp-panel.js';
+import { boardStatusText, telemetry } from './esp-panel.js';
+import { armConfirm, cmd, paintAck, parseLim } from './cmd.js';
 import { cardGrid, cell, put, putRow, statusLine } from './status-cards.js';
+
+// The panel's timers, as its own frame reported them. Empty until a frame says one, so
+// a row shows a dash instead of a number this page invented.
+const limNow = {};
+
+// A step is computed from the number the board is running, never from a counter kept
+// here: two people on the same panel would otherwise drift apart and the second one's
+// click would send a value neither of them saw.
+function stepLimit(key, verb, delta, min, max) {
+  const cur = Number(limNow[key]);
+  if (!Number.isFinite(cur)) return;
+  let next = Math.round((cur + delta) * 100) / 100;
+  if (next < min) next = min;
+  if (next > max) next = max;
+  cmd.fireConfirm(next);
+}
 
 // The frame's own words are the firmware's enum names; a 9-character NORMAL does not
 // fit a card that is a third of the drawer, and the drawer is Chinese anyway.
@@ -70,6 +87,18 @@ function refresh() {
 
   refs.warn.textContent = live ? fireAlertText() : '这块板还没有运行成功：下面的状态都是空的';
 
+  // The timers come out of this board's own frame; the ack is its answer to whatever
+  // the page last asked for.
+  const lim = parseLim(live && telemetry.fire ? telemetry.fire.lim : '');
+  Object.assign(limNow, lim);
+  for (const key of Object.keys(refs)) {
+    const r = refs[key];
+    if (!r || !r.val) continue;
+    const v = limNow[key];
+    r.val.textContent = Number.isFinite(v) ? `${v}${r.unit ? ' ' + r.unit : ''}` : '-';
+  }
+  paintAck('fire', refs.cmd);
+
   card('fwHealth', `${live ? fireHealthyLoops() : '-'} <small>/4 回路</small>`);
   card('fwAlarms', `${live ? fireAlarmCount() : '-'} <small>路</small>`);
   card('fwPump', live ? (firePanel.pumpPermit ? '许可' : '待机') : '-');
@@ -120,6 +149,62 @@ export function mountFirePanel(mount) {
 
   refs.warn = el('div', 'dr-alert');
   mount.appendChild(refs.warn);
+
+  // Three commands a fire panel actually has. Each takes two clicks: the first arms
+  // the button and says what the second will do, the second sends it. A modal dialog
+  // would cover the very readings that have to be checked before confirming.
+  const ctl = el('div', 'esp-ctl');
+  ctl.appendChild(el('span', 'dr-lbl', '面板操作'));
+  for (const [labelText, send, note] of [
+    ['静音', cmd.fireSilence, '停警铃，不清报警；板子对静音有次数和时长限制（看上面 静音 卡）'],
+    ['复位', cmd.fireReset, '和柜门钥匙走同一道闸：报警没清掉就复不了，复不动会在帧里说不认'],
+    ['试验', cmd.fireTest, '点铃和灯，不影响泵许可，也不报火警'],
+  ]) {
+    const b = el('button', 'esp-btn', labelText);
+    b.title = note;
+    armConfirm(b, send);
+    ctl.appendChild(b);
+  }
+  refs.cmd = el('span', 'cmd-line');
+  ctl.appendChild(refs.cmd);
+  mount.appendChild(ctl);
+
+  // The panel's timers. Only the alarm-confirm window is something the page may change;
+  // the other three are shown as the board reports them and say so when they cannot be
+  // touched from here, rather than offering a control that would be a lie.
+  const fold = document.createElement('details');
+  fold.className = 'pw-limits';
+  const sum = document.createElement('summary');
+  sum.textContent = '面板计时 · 只有报警确认时长能从这里改';
+  fold.appendChild(sum);
+  const rows = el('div', 'wt-rows');
+  for (const [label, key, verb, min, max, step, unit] of [
+    ['报警确认时长', 'cfm', 'confirm', 5, 300, 5, 's'],
+    ['单次静音时长', 'sil', null, 0, 0, 0, 's'],
+    ['自动试验周期', 'tst', null, 0, 0, 0, '天'],
+  ]) {
+    const row = el('div', 'wt-row');
+    row.appendChild(el('span', 'wt-row-l', label));
+    const val = el('span', 'wt-row-v', '-');
+    if (!verb) {
+      val.textContent = '- 不可从界面改';
+      row.append(val);
+      rows.appendChild(row);
+      continue;
+    }
+    const minus = el('button', 'wt-step', '−');
+    const plus = el('button', 'wt-step', '+');
+    minus.addEventListener('click', () => stepLimit(key, verb, -step, min, max));
+    plus.addEventListener('click', () => stepLimit(key, verb, step, min, max));
+    row.append(minus, val, plus);
+    refs[key] = { val, unit };
+    rows.appendChild(row);
+  }
+  fold.appendChild(rows);
+  fold.appendChild(el('small', 'esp-note',
+    '格里的数是板子帧里 lim= 带回来的，不是本页记的；改完板子会用 ack=ok:confirm=… 回它存下的值。' +
+    '超出 5..300 秒板子会退回，上面那行照实说。'));
+  mount.appendChild(fold);
 
   mount.appendChild(el('small', 'esp-note',
     '回路档位：0 正常 · 1 报警 · 2 断路 · 3 短路 · 4 读数模糊。消防水池水位读的是水塔，不是这块板——面板不测的那个量在这里就不出现。'));

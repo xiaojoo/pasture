@@ -5,7 +5,7 @@ import { barnSchedule, setBarnSchedule, setHouseSupply, waterBoardLive, waterSta
 import { boardRunning } from '../state/boards.js';
 import { telemetry, boardStatusText } from './esp-panel.js';
 import { cardGrid, cell, put, sectionLabel, statusLine } from './status-cards.js';
-import { showToast } from './toast.js';
+import { cmd, paintAck, parseLim } from './cmd.js';
 
 let host = null;
 let timer = 0;
@@ -29,33 +29,51 @@ function toggle(label, get, set, cls) {
   return b;
 }
 
-function stepper(label, key, min, max, step, unit) {
+// Where a stepper's number comes from. Once this board reports its programme the row
+// shows and changes *the board's* number, inside the range the board accepts; until
+// then the row is the page's own demo cycle and says 本页, because a 4-second period is
+// not something a real valve controller would take.
+const BOARD_RANGE = { periodSec: { key: 'per', min: 60, max: 86400 }, runSec: { key: 'run', min: 5, max: 3600 } };
+const limNow = {};
+
+function stepper(label, key, min, max, step, unit, wire) {
   const row = el('div', 'wt-row');
   row.appendChild(el('span', 'wt-row-l', label));
   const minus = el('button', 'wt-step', '−');
   const val = el('span', 'wt-row-v');
   const plus = el('button', 'wt-step', '+');
-  const draw = () => { val.textContent = `${barnSchedule[key]} ${unit}`; };
-  minus.addEventListener('click', () => {
-    setBarnSchedule({ [key]: Math.max(min, barnSchedule[key] - step) });
+  const board = BOARD_RANGE[key];
+  const fromBoard = () => (board && Number.isFinite(limNow[board.key]) ? limNow[board.key] : null);
+  const draw = () => {
+    const v = fromBoard();
+    val.textContent = v === null ? `${barnSchedule[key]} ${unit} · 本页` : `${v} ${unit} · 板子`;
+    val.title = v === null
+      ? `本页的演示周期；${wire ? '板子认的范围另有限制，发给它会被退回' : '只改本页'}`
+      : `这块板正在跑的周期，改它就改板子（认 ${board.min}..${board.max} ${unit}）`;
+  };
+  const move = dir => {
+    const cur = fromBoard();
+    if (cur !== null) {
+      // A ×1.5 step, because a fixed number of seconds is useless across a range that
+      // runs from a minute to a day, and the new number is printed before it is sent.
+      const next = Math.min(board.max, Math.max(board.min,
+        Math.round(dir > 0 ? cur * 1.5 : cur / 1.5)));
+      setBarnSchedule({ [key]: next });
+      wire(next);
+      draw();
+      return;
+    }
+    const next = dir > 0 ? Math.min(max, barnSchedule[key] + step) : Math.max(min, barnSchedule[key] - step);
+    setBarnSchedule({ [key]: next });
+    if (wire) wire(next);
     draw();
-  });
-  plus.addEventListener('click', () => {
-    setBarnSchedule({ [key]: Math.min(max, barnSchedule[key] + step) });
-    draw();
-  });
+  };
+  minus.addEventListener('click', () => move(-1));
+  plus.addEventListener('click', () => move(1));
   row.append(minus, val, plus);
   draw();
   refs[key] = { draw };
   return row;
-}
-
-// The board's decision wins while it is reporting, but the buttons are never taken
-// away from the operator -- he asked for that twice. What they get instead is the
-// answer out loud: pressing one while the board drives says so rather than
-// moving the button's own light and nothing else.
-function localIgnored(what) {
-  showToast(`${what}由水利板决定，本地指令未生效`);
 }
 
 function refresh() {
@@ -80,6 +98,11 @@ function refresh() {
   refs.warn.textContent = !live && telemetry.water === null
     ? '水利板还没运行成功：两块阀先关着，等串口出 WATER 上报'
     : '';
+  // The programme as this board reports it, then the rows that show it.
+  Object.assign(limNow, parseLim(live && telemetry.water ? telemetry.water.lim : ''));
+  if (refs.periodSec) refs.periodSec.draw();
+  if (refs.runSec) refs.runSec.draw();
+  paintAck('water', refs.cmd);
 }
 
 export function mountWaterPanel(mount) {
@@ -105,21 +128,33 @@ export function mountWaterPanel(mount) {
 
   const ctl = el('div', 'esp-ctl');
   ctl.appendChild(toggle('牛舍定时', () => barnSchedule.on, v => {
-    if (waterBoardLive()) { localIgnored('牛舍定时'); return; }
+    // The board's own words for this are resume and stop: the programme is enabled
+    // or it is not. Switching it here means telling the board, not just painting
+    // the scene -- and the ack line below is what says whether it listened.
     setBarnSchedule({ on: v });
+    cmd.waterBarn(v);
   }, 'dr-go'));
   ctl.appendChild(toggle('主屋常开', () => waterSystem.houseOn, v => {
-    if (waterBoardLive()) { localIgnored('主屋供水'); return; }
     setHouseSupply(v);
+    cmd.waterHouse(v);
   }));
+  const once = el('button', 'esp-btn', '立即放水一次');
+  once.title = '放水一次，不改牛舍的周期计划';
+  once.addEventListener('click', cmd.waterOnce);
+  ctl.appendChild(once);
+  refs.cmd = el('span', 'cmd-line');
+  ctl.appendChild(refs.cmd);
   mount.appendChild(ctl);
 
   const rows = el('div', 'wt-rows');
-  rows.appendChild(stepper('发水周期', 'periodSec', 4, 120, 2, 's'));
-  rows.appendChild(stepper('单次时长', 'runSec', 1, 60, 1, 's'));
+  rows.appendChild(stepper('发水周期', 'periodSec', 4, 120, 2, 's', cmd.waterPeriod));
+  rows.appendChild(stepper('单次时长', 'runSec', 1, 60, 1, 's', cmd.waterRun));
   mount.appendChild(rows);
 
-  mount.appendChild(el('small', 'esp-note', '两路互不影响：牛舍按周期开合电磁阀，主屋是独立一路，随时可单独关。'));
+  mount.appendChild(el('small', 'esp-note',
+    '两路互不影响：牛舍按周期开合电磁阀，主屋是独立一路，随时可单独关。' +
+    '步进改的周期和时长也发给板子，但板子只认周期 60..86400 秒、单次 5..3600 秒——' +
+    '比它小的演示值会被退回，上面那行照实说是哪条没认。'));
 
   refresh();
   if (!timer) timer = setInterval(refresh, 200);

@@ -23,6 +23,11 @@ struct MissionStatus {
     Action failsafe;
     char failsafe_reason[24];
     char mode[12];            // FC mode string, e.g. AUTO, RTL, LOITER
+    // Who is flying: while the ground station holds the sticks this is true, the
+    // `mode` above reads HOLD instead of the planner's phase, and `rc_why` carries
+    // the reason for the last axis line this board refused.
+    bool rc_live;
+    char rc_why[16];
 };
 
 void missionInit();
@@ -32,13 +37,22 @@ bool missionUpload(const Mission& m, MissionSource src);
 bool missionStartAuto();
 void missionRtl();
 void missionLand();
-void missionHold();
+// Cancel the automatic sortie and *stay* cancelled: the planner stops, the FC is held in
+// LOITER, and the sticks are live. False when there is nothing to cancel (on the pad).
+bool missionHold();
+// The way back: false unless something is actually cancelled and a mission is loaded.
+bool missionResume();
+// Stick axes from the console, "fwd,side,climb,yaw" each -1..1. Refused with a
+// reason when the aircraft is not in a state that can honour an override.
+void missionOnRc(const char* axes);
 void missionTick(uint32_t dt_ms);
 void missionStatus(MissionStatus& out);
 
 // Ground-station input.
 void missionOnMavlink(const struct MavMessage& m);
-void missionOnCommand(const char* cmd, const char* payload);
+// False only when this module owned the verb and refused it, so the board's `ack=` can
+// say no to a 取消 that had nothing to cancel.
+bool missionOnCommand(const char* cmd, const char* payload);
 
 // Home position, latched from the first good GNSS fix while disarmed.
 bool missionHomeSet();

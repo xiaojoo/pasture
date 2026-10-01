@@ -38,9 +38,19 @@ export const view = { fpv: false, follow: false, frame: null };
 export const drone = {
   mode: 'IDLE',
   source: 'manual',
+  // The board's own answer to "who is flying the sticks": 1 while it is forwarding
+  // them to the flight controller, 0 when it has released them, null when no frame
+  // has said either. `rcWhy` is the reason the board last refused an axis line.
+  ovr: null,
+  rcWhy: '',
   // The last mission phase the board reported, kept for the fault line: "the board is
   // still in GROUND" is only useful if the panel can say GROUND without a frame in hand.
   boardMode: '',
+  // The board's own safety switch and the reason it gave. Without these a launch that
+  // never happened reads as "the board ignored me" instead of "the board is still locked
+  // and here is what it said".
+  boardSafe: null,
+  boardWhy: '',
   // The board's own above-ground height, once it has reported one. Null means "no
   // frame", which is different from 0 ("on the pad").
   boardAgl: null,
@@ -156,6 +166,10 @@ scene.add(rig);
 export const fpvCamera = new THREE.PerspectiveCamera(96, 16 / 9, 0.1, 600);
 
 /* ---------- flight ---------- */
+// The names the scene uses for "a hand is on the sticks": its own MANUAL, plus the two the
+// board reports -- LOITER (sortie cancelled, waiting) and HOLD (cancelled and being flown).
+const STICK_MODES = ['MANUAL', 'LOITER', 'HOLD'];
+
 function steerTo(x, z, dt) {
   const dx = x - drone.pos.x;
   const dz = z - drone.pos.z;
@@ -224,8 +238,12 @@ export function returnHome() {
 
 export function setManualAxes(axes) {
   Object.assign(input, axes);
+  sendAxes(true);
   if (drone.mode === 'IDLE') return;
-  if (drone.mode !== 'MANUAL') {
+  // A stick pushed while the sortie is cancelled does not rename the cancellation: the
+  // board answers those two moments with HOLD, and the panel has to be able to still say
+  // "auto is off" while the operator is flying.
+  if (!STICK_MODES.includes(drone.mode)) {
     drone.mode = 'MANUAL';
     drone.alert = '';
   }
@@ -253,7 +271,48 @@ export function setCommandSender(fn) { commandSender = typeof fn === 'function' 
 // Verbs the firmware's own ground-command grammar accepts (firmware/drone/src/main.cpp,
 // onGroundCommand). A verb that is not in this table is a scene-only move and is left
 // out of the wire rather than sent as something the board would ignore.
-const WIRE_VERB = { takeoff: 'takeoff', land: 'land', patrol: 'patrol' };
+const WIRE_VERB = {
+  takeoff: 'takeoff', land: 'land', patrol: 'patrol',
+  // The board's verbs for these two are `hold` and `rtl`; sending the page's word
+  // for them is how 悬停 and 返航 came to be honoured locally and ignored in the air.
+  // `hold` is also the cancel: the board stays in LOITER after it, so the sticks are
+  // live and nothing resumes on its own -- see mission.cpp's mode watchdog.
+  hover: 'hold', rtl: 'rtl',
+  // The way back from a cancel. Without an entry here the board's `resume` verb had no
+  // button anywhere, so cancelling a sortie was a one-way action.
+  resume: 'resume',
+};
+
+// The stick channel. The console is a serial line, not a joystick: the firmware
+// releases the RC channels when the axis lines stop arriving (500 ms), and a key
+// that is merely *held* produces no further keystrokes, so the axes are re-issued
+// on a timer while any of them is non-zero and handed back once with a zero line.
+const RC_PERIOD_MS = 150;
+// `sent` starts as null, not false: a stick nobody has touched is not a delivery
+// that failed, and the panel says different things about the two.
+export const stick = { sent: null, why: '', line: '' };
+let rcNext = 0;
+let rcZero = true;   // the board already has the channels back
+
+const axis = v => Math.round((Number(v) || 0) * 100) / 100;
+
+function sendAxes(force) {
+  // Not installed yet is not a failed delivery: the board link installs the writer
+  // when it loads, and a first animation frame that beats it must not leave a
+  // refusal on the panel that nothing ever clears.
+  if (!commandSender) return;
+  const line = `rc=${axis(input.fwd)},${axis(input.side)},${axis(input.climb)},${axis(input.yaw)}`;
+  const zero = line === 'rc=0,0,0,0';
+  if (zero && rcZero && !force) return;
+  const now = Date.now();
+  if (!force && now < rcNext) return;
+  rcNext = now + RC_PERIOD_MS;
+  rcZero = zero;
+  stick.line = line;
+  const why = commandSender(line);
+  stick.sent = !why;
+  stick.why = why || '';
+}
 
 function sendToBoard(verb) {
   const wire = WIRE_VERB[verb];
@@ -267,7 +326,11 @@ function sendToBoard(verb) {
 const WANTED_MODES = {
   takeoff: ['CLIMB', 'TRANSIT', 'DWELL', 'PATROL'],
   patrol: ['CLIMB', 'TRANSIT', 'DWELL', 'PATROL'],
-  hover: ['HOLD', 'DWELL', 'TRANSIT'],
+  // LOITER is the board's word for "cancelled, and staying cancelled"; HOLD is the same
+  // moment with a hand on the stick. A cancel that the panel could not see acknowledged
+  // would sit there looking like an unanswered button.
+  hover: ['LOITER', 'HOLD', 'DWELL', 'TRANSIT'],
+  resume: ['CLIMB', 'TRANSIT', 'DWELL', 'PATROL'],
   rtl: ['RTL', 'TRANSIT'],
   land: ['LAND', 'DESCEND', 'GROUND', 'LANDED', 'IDLE'],
 };
@@ -294,8 +357,14 @@ function expirePilot() {
   if (!pilotExpired()) return;
   const verb = pilot.want;
   pilot.want = '';
-  drone.alert = `板子 ${PILOT_ACK_S} 秒内没有认「${verb}」` +
-    (pilot.why ? `：${pilot.why}` : '：板子还在 ' + (drone.boardMode || '未上报'));
+  // Say what the board is actually on. "还在 GROUND" is only half a sentence: the frame
+  // carries `safe=` and its own `why=`, and with the safety still thrown that is the
+  // thing the operator has to do next.
+  const stuck = drone.boardMode || '未上报';
+  const reason = pilot.why || ('板子还在 ' + stuck
+    + (stuck === 'GROUND' && drone.boardSafe === 1
+      ? `（保险开着${drone.boardWhy ? '：' + drone.boardWhy : ''}，先按「解锁」再起飞）` : ''));
+  drone.alert = `板子 ${PILOT_ACK_S} 秒内没有认「${verb}」：${reason}`;
   pilot.why = '';
 }
 
@@ -305,6 +374,11 @@ export function pilotCommand(verb) {
   else if (verb === 'hover') hover();
   else if (verb === 'rtl') returnHome();
   else if (verb === 'land') land();
+  // Resuming is not something the page can draw: the board stopped the plan and the
+  // scene has been sitting wherever the operator left it. Without this branch the verb
+  // fell out of the chain below and the button looked pressed and did nothing -- the
+  // exact shape 悬停 and 返航 used to have.
+  else if (verb === 'resume') { /* wire only; the frame will move the scene */ }
   else return;
   pilot.want = verb;
   pilot.at = Date.now();
@@ -317,6 +391,16 @@ export function pilotCommand(verb) {
 export function applyBoardCommand(cmd) {
   const mode = String(cmd.mode || '').toUpperCase();
   drone.source = 'board';
+  // 1 = the board is flying the sticks right now, 0 = it has the channels back,
+  // null = nothing has ever said. Those three have to stay distinguishable: "not flying
+  // them" and "cannot tell" look identical from the pad. And a frame that does not carry
+  // the key at all must not erase an answer the board already gave -- measured once with a
+  // phone axis line in the air: the frame read `ovr=1` while the scene's mirror of it had
+  // gone back to null, because the previous frame happened not to carry the field.
+  if (cmd.ovr !== undefined && cmd.ovr !== '') drone.ovr = +cmd.ovr ? 1 : 0;
+  drone.rcWhy = String(cmd.rcwhy || '');
+  if (cmd.safe !== undefined && cmd.safe !== '') drone.boardSafe = +cmd.safe ? 1 : 0;
+  drone.boardWhy = String(cmd.why || '');
 
   const alt = num(cmd.agl !== undefined && cmd.agl !== '' ? cmd.agl : cmd.alt);
   if (alt >= 0) drone.targetAlt = Math.min(45, alt);
@@ -370,6 +454,14 @@ export function applyBoardCommand(cmd) {
     drone.mode = 'RTL';
   } else if (mode === 'LAND' || mode === 'DESCEND') {
     drone.mode = 'LAND';
+  } else if (mode === 'LOITER' || mode === 'HOLD') {
+    // The cancelled state has to look cancelled. Without this branch the scene kept its
+    // old PATROL mode and steered on to the next waypoint while the board sat in LOITER --
+    // so the one picture the operator watches contradicted the button he had just pressed.
+    // These two are flown by the sticks, which is the same kinematics as MANUAL.
+    drone.mode = mode;
+    drone.vel.set(0, 0, 0);
+    drone.alert = '';
   } else if (mode === 'GROUND' || mode === 'LANDED' || mode === 'IDLE') {
     // A ground frame from the board ends a local flight only when the operator is not
     // mid-command. Otherwise the acknowledgement of the takeoff that is still climbing
@@ -407,6 +499,9 @@ export function updateDrone(dt, time) {
   // arrives, so a board that goes quiet would leave a pending command looking pending
   // for ever instead of turning into the fault it is.
   expirePilot();
+  // The sticks are a held thing, not an event: keep the line coming while a key or
+  // a pad button is down, and let the released one go out on its own edge.
+  sendAxes(false);
 
   if (d.mode === 'IDLE') {
     // "On the ground" has to mean on the ground. The board reports LANDED, and a
@@ -469,7 +564,7 @@ export function updateDrone(dt, time) {
 
   const link = Math.hypot(d.pos.x - GROUND_STATION.x, d.pos.z - GROUND_STATION.z);
   if (d.source !== 'board') d.rssi = Math.round(-44 - link * 0.46);
-  if (link > LINK_LIMIT && d.mode === 'MANUAL') {
+  if (link > LINK_LIMIT && STICK_MODES.includes(d.mode)) {
     d.mode = 'RTL';
     d.alert = '链路丢失，自动返航';
   }

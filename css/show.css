@@ -2,11 +2,10 @@
    DRONE SHOW CHOREOGRAPHY PAGE
 ========================================================= */
 
-/* Docked along the bottom, flush with it: the panel is chrome of the same family as the
-   right-hand drawers, so it meets the edge instead of floating a strip of sky under
-   itself. The camera row is the one thing that used to live there, and it is lifted
-   above the panel while it is open rather than buried under it -- an affordance you
-   cannot reach because a panel is on top of it is a dead control. */
+/* Docked along the bottom, flush with it. It is an overlay: the formation is framed against
+   the whole window height and then slid up out of the way, so the panel costs the show
+   position, not scale (measured: framed to the band the desk leaves, 24 aircraft projected
+   251x73 px; framed to the window and slid up, the same show is 707x264 px). */
 .show-page{
     position:absolute;
     z-index:60;
@@ -14,13 +13,10 @@
     right:0;
     top:auto;
     bottom:0;
-    /* As tall as the programme needs and no taller: a fixed 52 vh left ~200 px of
-       the panel's own background between the form columns and the timeline, which is
-       the drawer's emptiness rather than the sky's. The cap keeps a 16-act show inside
-       the frame and lets the panel scroll instead. */
+    width:auto;
     height:auto;
-    min-height:320px;
-    max-height:calc(100% - 90px);
+    min-height:0;
+    max-height:calc(100% - 190px);
     display:flex;
     flex-direction:column;
     gap:12px;
@@ -29,15 +25,17 @@
     border-top:1px solid rgba(255,255,255,.08);
     box-shadow:0 -24px 60px rgba(0,0,0,.45);
     color:#dff0e4;
-    overflow:auto;
+    /* The column itself never scrolls. Measured with the whole panel scrolling, the row
+       holding 起飞 / 停止 / 上传节目 / 近看机身 / 对准机群 sat at y 900..1049 of a 900 px
+       window -- every primary button below the fold with nothing to hint at it. The form
+       columns scroll instead, and the foot stays where the hand expects it. */
+    overflow:hidden;
 }
 
-/* Set by show-page.js to the panel's own height while it is open; 0 when it is not, so
-   the camera row goes back to the bottom edge on its own. */
-.bottom{
-    bottom:calc(22px + var(--show-dock,0px));
-    transition:bottom .18s ease;
-}
+/* `--show-dock` (published by show-page.js) is what the framing slides the picture by. The
+   camera row used to be lifted by a `.bottom{bottom:calc(22px + var(--show-dock))}` rule
+   here; the row is in the header at desktop widths now, so that rule lives in bottom.css's
+   narrow-screen block, where the row still sits on the bottom edge. */
 
 /* In the popped-out window the panel *is* the window: the ranch's own chrome belongs to
    the other one, which is where the fleet is. */
@@ -51,6 +49,7 @@
 
 .show-solo .show-page{
     inset:0;
+    width:auto;
     height:auto;
     max-height:none;
 }
@@ -69,15 +68,15 @@
 
 .sp-cols{
     display:grid;
-    /* Three tracks now that the page is as wide as the screen: the 节目单 row -- a
-       shape picker, a colour swatch and four number fields -- needs ~640 px, and at
-       the old 900 px dock it could not have that next to the other two columns, so the
-       verdict column was folded under the parameters. On the bottom dock all three fit
-       side by side and the page is one screen tall instead of two. */
+    /* One column: the desk is a 520 px column on the right now, so the three tracks that
+       fitted across a full-width bottom dock would not fit here. The panel scrolls, the
+       canvas does not shrink. */
     grid-template-columns:250px max-content 1fr;
     gap:14px;
     align-items:start;
     flex:1;
+    min-height:0;
+    overflow:auto;
 }
 
 .sp-col{
@@ -107,6 +106,24 @@
     color:#7f9a8b;
     font-size:10.5px;
     font-style:normal;
+}
+
+/* The desk is a 520 px column now, and a two-character label with a number box beside it
+   folded to one glyph per line inside it. The labels are not the thing that gives way. */
+.sp-k,.sp-mini i{
+    white-space:nowrap;
+    flex:none;
+}
+
+/* The size readout is also the "give me auto back" button, so it has to look like the
+   one thing on the row that answers a click -- colour only, no shift and no growth. */
+.sp-scale-label{
+    cursor:pointer;
+    text-decoration:underline dotted;
+}
+
+.sp-scale-label:hover{
+    color:#cfe6da;
 }
 
 .sp-input{
@@ -248,6 +265,10 @@
 .sp-act{
     display:flex;
     align-items:center;
+    /* A picker, a colour, four number fields and three buttons is wider than the column,
+       so the row wraps onto a second line instead of pushing ↑ ↓ × past the edge where
+       they could not be clicked. */
+    flex-wrap:wrap;
     gap:7px;
     padding:7px 9px;
     border-radius:9px;
@@ -269,6 +290,7 @@
 }
 
 .sp-btn{
+    white-space:nowrap;
     padding:5px 10px;
     border-radius:7px;
     background:rgba(255,255,255,.05);
@@ -379,6 +401,7 @@
 .sp-foot{
     display:flex;
     align-items:center;
+    flex-wrap:wrap;
     gap:10px;
 }
 
@@ -391,12 +414,28 @@
 /* The timeline is the one part of the page that is a picture rather than a form:
    the width of each block is the seconds it lasts, so a show that reads as "long
    hold, short move" is visibly that. */
+.sp-timeline{
+    /* The rows are positioned inside this, and so is the playhead: without a positioned
+       box of its own the head landed against some ancestor further out and swept across
+       the panel at the wrong place -- a clock line that does not point at the clock. */
+    position:relative;
+}
+
 .sp-seg{
-    display:flex;
+    /* One row per act, but on the show's single time axis: the bars are placed by
+       `left`, not by flex order, or every act starts at the left edge and four
+       sequential 走位 look like they happen at the same moment. */
+    position:relative;
     height:26px;
     margin-bottom:4px;
     border-radius:7px;
     overflow:hidden;
+}
+
+.sp-seg-move,.sp-seg-hold{
+    position:absolute;
+    top:0;
+    bottom:0;
 }
 
 .sp-seg-move{
@@ -411,6 +450,7 @@
 
 .sp-seg-hold{
     opacity:.85;
+    border-radius:0 5px 5px 0;
 }
 
 .sp-head{
@@ -427,10 +467,6 @@
 }
 
 @media (max-width:1180px){
-    .sp-cols{
-        grid-template-columns:1fr;
-    }
-
     .sd-body{
         grid-template-columns:1fr;
     }
@@ -582,4 +618,16 @@
 
 .sd-stage canvas{
     display:block;
+}
+
+/* A model row says what makes that shape three-dimensional, and that second half is
+   the reason an operator picks one, so it stays on the row rather than in a tooltip. */
+.sp-pick-opt b{
+    font-weight:600;
+}
+
+.sp-pick-z{
+    margin-left:8px;
+    color:#7d9389;
+    font-size:10.5px;
 }

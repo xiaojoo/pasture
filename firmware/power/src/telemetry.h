@@ -40,6 +40,13 @@ void telemetrySetLink(const char* host, uint16_t port, const char* client_id);
 
 using CommandHandler = void (*)(const char* payload, size_t len);
 void telemetrySetCommandHandler(CommandHandler fn);
+// Published as `ack=ok:<verb>` / `ack=no:<verb>` for a few seconds after a command.
+void telemetryNoteAck(const char* verb, const char* value, bool ok);
+// The thresholds this board is actually running, as one self-describing string
+// (`uv0.85/ov1.10/...`), published as `lim=`. Names travel with the numbers because a
+// packed list can be mis-ordered without anything noticing.
+void telemetrySetLimits(const char* text);
+
 
 void telemetryPublish(const PowerReport& r);
 

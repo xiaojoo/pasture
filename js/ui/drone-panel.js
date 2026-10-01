@@ -1,14 +1,33 @@
 // The 无人机巡检 drawer: telemetry readout, a hold-to-fly direction pad, the
 // action buttons, the patrol route and the two camera modes.
 import {
-  GROUND_STATION, ROUTE, drone, pilot, pilotCommand, setManualAxes, view,
+  GROUND_STATION, ROUTE, drone, pilot, pilotCommand, setManualAxes, stick, view,
 } from '../world/drone.js';
 import { telemetry, boardStatusText } from './esp-panel.js';
+import { cmd, paintAck } from './cmd.js';
 import { boardRunning } from '../state/boards.js';
 import { cardGrid, cell, put, sectionLabel, statusLine } from './status-cards.js';
 
 function boardLive() {
   return !!telemetry.drone && drone.source === 'board';
+}
+
+// The modes where the plan is flying the aircraft. LOITER (cancelled, waiting) and HOLD
+// (a hand on the stick) are the two ends of manual, and GROUND / DESCEND are neither.
+const AUTO_MODES = ['CLIMB', 'TRANSIT', 'DWELL', 'PATROL', 'RETURN', 'RTL'];
+// The button's state comes from the board's own phase whenever the board is talking, and
+// only from the scene while it is not. Lit off the page's own click is the thing that got
+// this drawer distrusted: 「按下就亮」 and 「板子在飞」 are two different claims.
+// Read off the frame rather than `drone.boardMode`: that mirror is applied on the board
+// link's 200 ms interval, and measured against the live board the frame already said
+// `mode=CLIMB` while the button still read unlit -- so the press that should have been the
+// cancel went out as 巡检 again, one press behind the aircraft for the rest of the run.
+function liveMode() {
+  const f = telemetry.drone;
+  return f ? String(f.mode || '').toUpperCase() : drone.mode;
+}
+function autoOn() {
+  return AUTO_MODES.includes(liveMode());
 }
 
 let host = null;
@@ -121,7 +140,7 @@ function refresh() {
   const dist = Math.hypot(w.x - drone.pos.x, w.z - drone.pos.z);
   const link = Math.hypot(drone.pos.x - GROUND_STATION.x, drone.pos.z - GROUND_STATION.z);
 
-  put(host.t.mode, drone.mode, null, drone.mode === 'IDLE' ? '' : 'dr-live');
+  put(host.t.mode, liveMode(), null, liveMode() === 'IDLE' ? '' : 'dr-live');
   // 高度 is the aircraft's height above the pad in the flying mode. The scene's own
   // position is a render coordinate with no vertical limit of its own; the board's AGL
   // is the measurement, so once there is a frame it wins -- the two used to disagree by
@@ -140,6 +159,43 @@ function refresh() {
     ? '无人机板还没运行成功：飞机在地面待命，指令只改本地场景'
     : drone.alert;
 
+  // Three answers, not one string: the line never reached the board (no simulator,
+  // board not running), the board read it and refused it, and the board is flying it.
+  const undelivered = stick.sent === false ? `摇杆没送到板子：${stick.why}` : '';
+  const refused = drone.rcWhy ? `板子拒绝这一下摇杆：${drone.rcWhy}` : '';
+  // LOITER is the board saying "cancelled, and staying cancelled". The operator has to be
+  // able to tell that from an automatic sortie at a glance, or the pad looks like it is
+  // fighting the mission rather than replacing it.
+  const cancelled = liveMode() === 'LOITER' || liveMode() === 'HOLD';
+  // Two sentences, both always on screen. They used to be one slot that picked whichever
+  // fact was newest, so the instant a direction was pressed the cancellation line was
+  // overwritten by 「摇杆：板子在照它飞」 -- which is the exact moment the operator needs to
+  // be told the sortie is off. Same for a refusal.
+  const sortie = cancelled
+    ? '自动巡航已取消 · 板子停在 LOITER 等人工：推方方键或在手机上推杆就接管，再按一次「自动巡检」接着飞'
+    : autoOn() ? '自动巡航中 · 板子按航线飞：按「自动巡检」就取消，取消后由方方键 / 手机接管'
+      : telemetry.drone ? `板子现在的相：${liveMode() || '未上报'}`
+        : '无人机板没上报：飞机在地面待命，指令只改本地场景';
+  const authority = drone.ovr === 1 ? '摇杆：无人机板在照它飞（DRONE 帧 ovr=1）'
+    : drone.ovr === 0 ? '摇杆：已交回板子的任务飞行（ovr=0）'
+      : '摇杆：只有本地场景在动（无人机板没上报）';
+  const line = undelivered || refused || authority;
+  host.sortie.textContent = sortie;
+  host.sortie.classList.toggle('dr-warn', cancelled);
+  host.stick.textContent = line;
+  host.stick.classList.toggle('dr-live', !undelivered && !refused && drone.ovr === 1);
+  host.stick.classList.toggle('dr-warn', !!undelivered || !!refused);
+  paintAck('drone', host.ack);
+  // The one button that means two things says which one it currently is, off the board's
+  // mode rather than off the last click.
+  if (host.patrol) {
+    const on = autoOn();
+    host.patrol.setAttribute('aria-pressed', String(on));
+    host.patrol.title = on
+      ? '自动巡航中：再点一次取消，飞机停在原地由摇杆/手机接管（恢复自动就再点回来）'
+      : '按航线自动巡检：起飞后自己走完 ' + ROUTE.length + ' 个航点';
+  }
+
   for (let i = 0; i < host.routeEls.length; i++) {
     host.routeEls[i].classList.toggle('cur', i === drone.wp && drone.mode === 'PATROL');
     host.routeEls[i].classList.toggle('done', i < drone.wp);
@@ -149,7 +205,7 @@ function refresh() {
 export function mountDronePanel(mount) {
   ensureFrame();
   mount.textContent = '';
-  host = { mount, alert: null, routeEls: [], t: {}, manualEls: [] };
+  host = { mount, alert: null, stick: null, routeEls: [], t: {}, manualEls: [] };
 
   sectionLabel(mount, '无人机巡检 · 实时遥测');
   const grid = cardGrid();
@@ -172,12 +228,42 @@ export function mountDronePanel(mount) {
   // would be a grounded aircraft with nobody holding the controls. The panel says
   // which of the two the board has agreed to.
   acts.appendChild(action('起飞', () => pilotCommand('takeoff'), 'dr-go'));
-  acts.appendChild(action('自动巡检', () => pilotCommand('patrol'), 'dr-go'));
-  acts.appendChild(action('悬停', () => pilotCommand('hover')));
+  // One button, two ends. Pressed once it launches and flies the route; pressed again it
+  // cancels the plan and the aircraft stays where it is, under the sticks or the phone.
+  // Its pressed state is the board's own mode, not what was last clicked -- a light that
+  // says "on" because the page pressed it is the thing that got distrusted here before.
+  host.patrol = action('自动巡检', () => pilotCommand(autoOn() ? 'hover' : 'patrol'), 'dr-go dr-toggle');
+  host.patrol.setAttribute('aria-pressed', 'false');
+  acts.appendChild(host.patrol);
   acts.appendChild(action('返航', () => pilotCommand('rtl')));
   acts.appendChild(action('降落', () => pilotCommand('land'), 'dr-stop'));
   host.manualEls = [...acts.querySelectorAll('.esp-btn')];
+  // The board's own answer, in the row that asks: 起飞 pressed and the aircraft not
+  // lifting has three different causes -- the page did not send it, the board did not
+  // know it, the board said no -- and only the board can tell them apart.
+  acts.appendChild(el('span', 'cmd-line'));
+  host.ack = acts.lastChild;
   wrap.appendChild(acts);
+
+  // Three commands the firmware has accepted all along and no screen ever sent:
+  // 解锁 (arm=1), 上保险 (safe=1) and 拍照 (camera=1). The first two move the safety, so
+  // they get the same second click the fire panel's 静音/复位 do; the phone has had all
+  // three, which is how the gap showed up.
+  const boardOps = el('div', 'esp-ctl');
+  boardOps.appendChild(el('span', 'dr-lbl', '板上操作'));
+  for (const [labelText, line, note] of [
+    ['解锁', 'arm=1', '把保险拉开：随后按「起飞」它才推得动电机；再点「上保险」就收回去'],
+    ['上保险', 'safe=1', '和机上的保险开关同一个动作：在地面锁住电机'],
+    ['拍照', 'camera=1', '让飞控立刻拍一张，计入帧里的 shots='],
+  ]) {
+    // One click each. 解锁 and 上保险 are the same pair the aircraft's own safety switch
+    // is, and each undoes the other, so a confirmation here would make the operator
+    // press twice to do what the board lets them reverse by pressing the other button.
+    const b = action(labelText, () => cmd.droneVerb(line));
+    b.title = note;
+    boardOps.appendChild(b);
+  }
+  wrap.appendChild(boardOps);
 
   const cams = el('div', 'esp-ctl');
   cams.appendChild(el('span', 'dr-lbl', '视角'));
@@ -186,13 +272,32 @@ export function mountDronePanel(mount) {
   cams.appendChild(el('small', 'esp-note', 'WASD 平移 · Q/E 偏航 · 空格上升 · Shift 下降'));
   wrap.appendChild(cams);
 
+  // Who the board says is flying the sticks, put next to the pad that sends them:
+  // a control whose authority is invisible reads as a broken control. The sortie's own
+  // state sits directly above it and neither one is ever used to paint over the other.
+  host.sortie = el('div', 'dr-alert dr-sortie');
+  wrap.appendChild(host.sortie);
+  host.stick = el('div', 'dr-alert dr-stick');
+  wrap.appendChild(host.stick);
+
   const body = el('div', 'dr-body');
 
   const pad = el('div', 'dr-pad');
   const padCell = (label, key, cls) => (key ? padButton(label, key, cls) : el('span', 'dr-pad-gap', label));
+  // The middle of the pad used to be a *label* — 悬停 — over a cell that did nothing.
+  // Now that 自动巡检 is one button with two ends, that dead word would be ambiguous as
+  // well as inert, so the middle releases the sticks where they are: with the sortie still
+  // automatic the board takes the plan back, with it cancelled the aircraft stops where the
+  // hand left it.
+  const release = el('button', 'dr-pad-btn dr-pad-c', '交回摇杆');
+  release.title = '立刻松开所有方向（rc=0,0,0,0）：没取消自动就交回航线，取消了就停在原地';
+  release.addEventListener('click', () => {
+    for (const k of Object.keys(held)) held[k] = 0;
+    applyAxes();
+  });
   for (const row of [
     [padCell('上升', 'up', 'dr-pad-v'), padCell('↑ 前进', 'fwd'), padCell('偏航 →', 'yawR', 'dr-pad-v')],
-    [padCell('← 左移', 'left'), padCell('悬停', null, 'dr-pad-c'), padCell('右移 →', 'right')],
+    [padCell('← 左移', 'left'), release, padCell('右移 →', 'right')],
     [padCell('下降', 'down', 'dr-pad-v'), padCell('↓ 后退', 'back'), padCell('← 偏航', 'yawL', 'dr-pad-v')],
   ]) for (const c of row) pad.appendChild(c);
   host.manualEls.push(...pad.querySelectorAll('.dr-pad-btn'));
