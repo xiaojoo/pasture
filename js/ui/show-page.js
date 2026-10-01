@@ -69,11 +69,16 @@ function el(tag, cls, text) {
   return n;
 }
 
-function num(label, value, min, max, step, onInput) {
+// `name` is the field's autofill key. Chrome's Issues panel flags every form field that has
+// neither an `id` nor a `name` (it counted 18 here, and 28 once the act rows grew), and the
+// names have to be unique across the whole document -- which is why the act rows carry their
+// own index rather than sharing one name per column.
+function num(label, name, value, min, max, step, onInput) {
   const row = el('label', 'sp-field');
   row.appendChild(el('span', 'sp-k', label));
   const i = el('input', 'sp-input');
   i.type = 'number';
+  i.name = name;
   i.min = min; i.max = max; i.step = step; i.value = value;
   // `commit()`, not just `dirty`: the left-hand numbers change the geometry -- 机数 changes
   // how many airframes the fleet holds and 最小间距 changes the lanes the paths are baked
@@ -246,6 +251,7 @@ function actRow(a, i) {
 
   const colour = el('input', 'sp-colour');
   colour.type = 'color';
+  colour.name = `act-${i + 1}-colour`;
   colour.value = hex(a.colour);
   // The colour picker fires `input` for every step of the drag; rebuilding this row under
   // it closes the picker mid-drag, so the live path keeps the row and the final one commits.
@@ -258,13 +264,16 @@ function actRow(a, i) {
     ['hold', '保持', 2, 120, 1], ['move', '走位', 1, 60, 1]]) {
     const f = el('label', 'sp-mini');
     f.appendChild(el('i', null, label));
-    const i = el('input', 'sp-input sp-narrow');
-    i.type = 'number'; i.min = min; i.max = max; i.step = step; i.value = a[k];
+    // `box`, not `i`: the row index is `i` and the name has to carry it, so shadowing it
+    // here would silently produce `act-NaN-scale`.
+    const box = el('input', 'sp-input sp-narrow');
+    box.type = 'number'; box.name = `act-${i + 1}-${k}`;
+    box.min = min; box.max = max; box.step = step; box.value = a[k];
     // Typing follows live (verdict, timeline, fleet), and the caret is only given up on
     // Enter or when the field is left -- that is when the row is rebuilt from the values.
-    i.addEventListener('input', () => { a[k] = Number(i.value); liveEdit(); });
-    i.addEventListener('change', () => { a[k] = Number(i.value); commit(); });
-    f.appendChild(i);
+    box.addEventListener('input', () => { a[k] = Number(box.value); liveEdit(); });
+    box.addEventListener('change', () => { a[k] = Number(box.value); commit(); });
+    f.appendChild(box);
     row.appendChild(f);
   }
 
@@ -853,13 +862,13 @@ export function toggleShowPage(force) {
 
   const left = el('div', 'sp-col');
   left.appendChild(el('div', 'sp-col-title', '机群与场地'));
-  left.appendChild(num('飞机数量', plan.drones, 1, SHOW_MAX_DRONES, 1, v => { plan.drones = Math.round(v); }));
-  left.appendChild(num('最小间距 (m)', plan.separation, 1, 8, 0.5, v => { plan.separation = v; }));
-  left.appendChild(num('最大速度 (m/s)', plan.maxSpeed, 1, 20, 0.5, v => { plan.maxSpeed = v; }));
-  left.appendChild(num('围栏半径 (m)', plan.geofence, 20, 400, 5, v => { plan.geofence = v; }));
-  left.appendChild(num('返航高度 (m)', plan.rtlAlt, 10, 120, 1, v => { plan.rtlAlt = v; }));
-  left.appendChild(num('当前电量 (%)', batt, 5, 100, 5, v => { batt = v; }));
-  left.appendChild(num('风 (m/s)', wind, 0, 12, 0.5, v => { wind = v; showSetWind(v); }));
+  left.appendChild(num('飞机数量', 'drones', plan.drones, 1, SHOW_MAX_DRONES, 1, v => { plan.drones = Math.round(v); }));
+  left.appendChild(num('最小间距 (m)', 'separation', plan.separation, 1, 8, 0.5, v => { plan.separation = v; }));
+  left.appendChild(num('最大速度 (m/s)', 'max-speed', plan.maxSpeed, 1, 20, 0.5, v => { plan.maxSpeed = v; }));
+  left.appendChild(num('围栏半径 (m)', 'geofence', plan.geofence, 20, 400, 5, v => { plan.geofence = v; }));
+  left.appendChild(num('返航高度 (m)', 'rtl-alt', plan.rtlAlt, 10, 120, 1, v => { plan.rtlAlt = v; }));
+  left.appendChild(num('当前电量 (%)', 'battery', batt, 5, 100, 5, v => { batt = v; }));
+  left.appendChild(num('风 (m/s)', 'wind', wind, 0, 12, 0.5, v => { wind = v; showSetWind(v); }));
   left.appendChild(el('small', 'sp-note',
     '数量、间距、速度、围栏、电量、风全部进 go/no-go 判定：改了任何一项，右侧立刻重判一次。'));
   cols.appendChild(left);
@@ -913,6 +922,7 @@ export function toggleShowPage(force) {
     boardRunning('show') ? '还没上传' : '未上传：表演机没运行');
   els.scrub = el('input', 'sp-scrub');
   els.scrub.type = 'range';
+  els.scrub.name = 'show-scrub';
   els.scrub.min = 0;
   els.scrub.step = 0.1;
   els.scrub.addEventListener('input', () => act('preview', Number(els.scrub.value)));

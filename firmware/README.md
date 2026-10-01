@@ -192,6 +192,73 @@ focustoggle / frame / sideview / mess` 全 pass，`cc.sh` 556/0、`show.sh` 129/
 710 / 190 / 202，于是机群上下都出画（`top −22`）。这是"按窗口定尺、只挪位置"的既有代价，
 要治得先决定牺牲尺寸还是牺牲台子高度。
 
+**每一个表单字段都补了 `name`**（2026-10-02，他贴来 Chrome 的「A form field element should have
+an id or name attribute」并说「全局优化这些」）。全站没有一处 `<input>` 写在 HTML 里，字段全是
+JS 造的，所以修法在造它们的那四个函数上：`show-page.js` 的 `num()`（左边 7 个：`drones /
+separation / max-speed / geofence / rtl-alt / battery / wind`）、`actRow()` 的取色与四格
+（`act-N-colour` / `act-N-scale|alt|hold|move`，**带行号才不重名**）、脚排的拖动预览
+（`show-scrub`），以及 `show-design.js` 的 `field()` 与那个藏起来的取色文件框（`sd-threshold /
+sd-drones / sd-scale / sd-alt / sd-image`）。用 `name` 不用 `id`：`id` 是全局命名空间，新加一批
+就可能和既有选择器撞（这条已经吃过一次亏）。
+
+量具 `.probe/fieldnames.mjs`（按 Chrome 的口径数：`input/select/textarea` 里既没 `id` 又没
+`name` 的）：
+
+| 状态 | 修之前 | 修之后 |
+| --- | --- | --- |
+| 主屏（编排台没开） | 0 个字段 | 0 |
+| 编排台开着 | **18 个字段全没名字** | 0，`name` 无重复、`id` 无重复 |
+| 编排台 + 加 2 幕 | **28 个全没名字** | 0，行号跟着长、仍不重名 |
+| 高级（轮廓设计器） | **5 个全没名字** | 0 |
+
+改 `actRow` 时差点踩一格：那一行里 `const i = el('input'…)` 把行号 `i` 遮掉了，名字会算成
+`act-NaN-scale` —— 循环里的输入框改名 `box`。反证是量具本身：修之前它必须报出非零（18/28/5），
+不然"0 个"不能说明什么。回归：`actedit / addact / timeline / focustoggle / dockview / deskfoot /
+oneact / mess / drag` 全照旧，`sololink` 29/0，`menutop` 7 档全过。
+
+**「自动巡检一直是选择状态」——上一轮把亮灭摘掉了，这一轮装回去、并且改接板子的相**
+（2026-10-02）。上一轮他说「点下去那个 active 去掉」，我照字面把 `.esp-btn[aria-pressed=true]`
+对 `.dr-toggle` 排除掉，**却忘了那颗钮身上还挂着常驻绿底的 `dr-go`**：结果灭和亮算出来是同一个
+颜色。对着真板量的证据（`.probe/drlines.mjs`）：GROUND / CLIMB / LOITER 三种相下底色全是
+`rgba(110,231,160,.14)`、边框全是 `.38` —— **状态在样式里根本不存在**，而那一抹常绿就是他看到的
+"一直选中"。
+
+改法两处：`drone-panel.js` 那颗钮去掉 `dr-go`（只留 `dr-toggle`），`esp-panel.css` 把
+`:not(.dr-toggle)` 摘掉 —— 亮灭仍由 `aria-pressed` 承载，而 `aria-pressed` 是由 **DRONE 帧的
+`mode`** 每 tick 写的（`liveMode()` 读帧、不读页面的 200 ms 镜像），所以它说的是"板子在按航线飞"，
+不是"有人按过"。量到：灭 `rgba(255,255,255,.05)` / 边框 `.1` / 字 `#eaf7ef`，**和同一排里普通的
+「返航」逐位相同**；亮 `rgba(110,231,160,.18)` / 边框 `.5` / 字 `#6ee7a0`；Δalpha **0.13** 且
+rgb、边框、字色三项全换。反证只破一边：把 `dr-go` 加回去，灭态立刻从 `.05` 变 `.14`，
+"不亮时就是普通按钮"那条判据红。
+
+**「不能循环点击」量下来是不成立的那一半 + 成立的那一半**：对着真板连按 6 下，
+`GROUND →(ok:patrol) CLIMB →(ok:hold) LOITER → CLIMB → LOITER → CLIMB → LOITER`，每一下
+`pilot.at` 都前进、每一下都是同一个 connected 节点、`elementFromPoint` 每下都命中自己 ——
+**按钮这一侧能循环**。他截图里那一条 「无人机板 6 秒内没回话（takeoff）」 才是原因：那一轮板子
+根本没在回执（多台仿真同开时串口只写到最后开启的那一块，`cmd.js` 能认出"被别的板接走"，认不出时
+只能说"没回话"），所以按下去什么相都不变、灯也就一直不亮。判据：`.probe/patrolloop.mjs`
+（连点 3 组 × 150 ms 两下，命令都再发出去了）。
+
+量这一条时踩到的仪表坑，记下来：**`.esp-btn` 挂着 `transition: background .15s`**，状态刚翻就
+`getComputedStyle` 会读到动画中间值 —— 读到过 `rgba(220,249,232,.063)`（在 .05 与 .18 之间），
+差点报成"亮时不是绿底"。凡是读回色都要先等过动画（`drlines.mjs` 的 `style()` 现在每次先睡
+320 ms）。同族：`menutop.mjs` 读数前要把指针移开，否则量到的是 `:hover` 那一套。
+
+回归：`drlines` **11 项 0 失败**（含上面那条反证）、`patrolloop` 全过、55 个页面模块 `--check`
+0 失败。`patrol2` **17/18**：红的是「手机也能取消」—— 飞机在 **DWELL**（航点停留）时手机那条
+`hover` 板子**完全没 ack**（`mode=DWELL, ack=''`），同一时刻同一动词从页面直接叫
+`pilotCommand('hover')` 在 CLIMB 下是 `ok:hold` 正常取消；上一轮它还通过，所以是**手机信箱那一段
+在停留相下的偶发丢**，与本轮改动无关，另开一轮查。
+
+**仿真台右上角那两颗钮之间给了 4 px**（2026-10-02，他贴了「最大化 / 收起」那张图说「给个间隙」）。
+现值量出来是 **0 px**：`.esp-dock-head` 是 `justify-content:space-between` 且没有 `gap`，那两颗是
+最后两个子元素，所以完全贴在一起（最大化右边 622、收起左边 622），而它们各带 1 px 边框，看着像
+一条分隔线。取 **4 px** 的理由是同一行左边那排页签的 `gap` 就是 4 px。写法
+`.esp-dock-btn + .esp-dock-btn{margin-left:4px}`，只加在并列的两颗之间，不去动 head 的 `gap`
+（那会连页签的 `margin:0 8px` 一起顶开）。量具 `.probe/dockgap.mjs`：普通档 **0 → 4**、
+最大化那一档（那两颗变成 还原/收起）**4**、点回还原仍 **4**；页签一个字没被裁、收起仍在栏内
+（右 663 ≤ 675−11）、两颗同一条基线、按钮高度 **22 → 22** 没长。
+
 
 
 **没验证到的**：`hal_esp32.cpp` 与 `*_task` 的 FreeRTOS/看门狗调用不在上面任何一条里——

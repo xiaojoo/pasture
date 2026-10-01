@@ -374,11 +374,13 @@ function mountThree(host3d) {
 }
 
 // --- the window ---------------------------------------------------------------
-function field(label, value, min, max, step, onInput) {
+// `name` keeps Chrome's "a form field should have an id or name" issue away and gives the
+// autofill heuristics something stable to hang the field on.
+function field(label, name, value, min, max, step, onInput) {
   const row = el('label', 'sd-field');
   row.appendChild(el('i', null, label));
   const i = el('input', 'sd-input');
-  i.type = 'number'; i.min = min; i.max = max; i.step = step; i.value = value;
+  i.type = 'number'; i.name = name; i.min = min; i.max = max; i.step = step; i.value = value;
   i.addEventListener('input', () => { onInput(Number(i.value)); });
   row.appendChild(i);
   return row;
@@ -476,6 +478,7 @@ function mount(target) {
   const drop = el('div', 'sd-drop', '点这里选图片，或把图片拖进来（描出来的是平面轮廓）');
   const file = el('input', 'sd-file');
   file.type = 'file';
+  file.name = 'sd-image';
   file.accept = 'image/*';
   file.addEventListener('change', () => load(file.files && file.files[0]));
   drop.addEventListener('click', () => file.click());
@@ -496,10 +499,10 @@ function mount(target) {
   modeRow.appendChild(picker(null, [{ id: 'edge', name: '轮廓' }, { id: 'fill', name: '填充' }],
     () => params.mode, v => { params.mode = v; }));
   col.appendChild(modeRow);
-  col.appendChild(field('阈值', params.threshold, 10, 250, 5, v => { params.threshold = v; retrace(); }));
-  col.appendChild(field('机数', params.drones, 1, 128, 1, v => { params.drones = Math.round(v); retrace(); }));
-  col.appendChild(field('水平尺寸 (m)', params.scale, 4, 90, 1, v => { params.scale = v; retrace(); }));
-  col.appendChild(field('中心高度 (m)', params.alt, ALT_MIN, ALT_MAX, 1, v => { params.alt = v; retrace(); }));
+  col.appendChild(field('阈值', 'sd-threshold', params.threshold, 10, 250, 5, v => { params.threshold = v; retrace(); }));
+  col.appendChild(field('机数', 'sd-drones', params.drones, 1, 128, 1, v => { params.drones = Math.round(v); retrace(); }));
+  col.appendChild(field('水平尺寸 (m)', 'sd-scale', params.scale, 4, 90, 1, v => { params.scale = v; retrace(); }));
+  col.appendChild(field('中心高度 (m)', 'sd-alt', params.alt, ALT_MIN, ALT_MAX, 1, v => { params.alt = v; retrace(); }));
 
   els.count = el('div', 'sd-count', '还没有点');
   col.appendChild(els.count);

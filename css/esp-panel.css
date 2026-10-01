@@ -180,6 +180,14 @@
     cursor:pointer;
 }
 
+/* 最大化 and 收起 are the last two children of a `justify-content:space-between` head, so
+   they were flush against each other (measured: 最大化 right edge 622, 收起 left edge 622 --
+   a 0 px gap, with each carrying its own 1 px border, so it read as one divider). The row's
+   own rhythm is the board tabs to their left, which sit 4 px apart. */
+.esp-dock-btn + .esp-dock-btn{
+    margin-left:4px;
+}
+
 .esp-dock-btn[aria-pressed="true"]{
     background:rgba(110,231,160,.16);
     border-color:rgba(110,231,160,.45);
@@ -317,11 +325,13 @@
 }
 
 
-/* 自动巡检 is excluded on purpose: it is one button with two ends, and a control that
-   stays filled in after the press reads as one stuck down. Its state is the sentence above
-   the pad, which now never gets overwritten; the aria-pressed attribute stays on the button
-   because that is what the state actually is. */
-.esp-btn[aria-pressed="true"]:not(.dr-toggle){
+/* The one control that means two things is lit by the board's own phase: `aria-pressed` on
+   自动巡检 is set from the DRONE frame's `mode`, never from the click, so this fill says the
+   aircraft is flying the plan, not that somebody pressed something. It used to be excluded
+   here -- "stays filled after the press reads as stuck down" -- but the button also carried
+   a permanent green `dr-go` fill, so off and on computed to the *same* colour and the state
+   was invisible either way. Geometry never changes; only the colours do. */
+.esp-btn[aria-pressed="true"]{
     background:rgba(110,231,160,.18);
     border-color:rgba(110,231,160,.5);
     color:#6ee7a0;

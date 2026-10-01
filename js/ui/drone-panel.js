@@ -232,7 +232,12 @@ export function mountDronePanel(mount) {
   // cancels the plan and the aircraft stays where it is, under the sticks or the phone.
   // Its pressed state is the board's own mode, not what was last clicked -- a light that
   // says "on" because the page pressed it is the thing that got distrusted here before.
-  host.patrol = action('自动巡检', () => pilotCommand(autoOn() ? 'hover' : 'patrol'), 'dr-go dr-toggle');
+  // It deliberately does NOT carry `dr-go`: that class paints a permanent green fill, and
+  // measured against the live board the button's computed style was then the same in
+  // GROUND, CLIMB and LOITER (rgba(110,231,160,.14) / border .38 in all three) -- which is
+  // what he read as 「一直是选择状态」. Neutral when off, filled when the frame says an
+  // auto phase; see the `[aria-pressed="true"]` rule in esp-panel.css.
+  host.patrol = action('自动巡检', () => pilotCommand(autoOn() ? 'hover' : 'patrol'), 'dr-toggle');
   host.patrol.setAttribute('aria-pressed', 'false');
   acts.appendChild(host.patrol);
   acts.appendChild(action('返航', () => pilotCommand('rtl')));
