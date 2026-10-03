@@ -1,28 +1,66 @@
 // The inspection drone: model, flight state and the patrol route.
 //
-// Waypoints are the real building positions from js/world/*, so the route
-// passes over things that exist. Flight is kinematic (position/attitude
-// integrated from a commanded velocity) -- enough for piloting, FPV and
-// telemetry without pretending to be a flight controller.
+// Waypoints are the real building positions from js/world/layout.js, so the route passes over
+// things that exist. Flight is kinematic (position/attitude integrated from a commanded
+// velocity) -- enough for piloting, FPV and telemetry without pretending to be a flight
+// controller.
+//
+// The pad is INSIDE the machine shed (he put the drone there this round), which brings two
+// things with it: the shed's roof is a real constraint on takeoff and landing, and the rig's
+// height is measured off the shed's floor, not the plateau. Both read from HANGAR, which
+// machine-shed.js exports, so moving the shed moves the pad.
 import * as THREE from 'three';
 import { scene } from '../core/scene.js';
+import { SITES, PADDOCKS } from './layout.js';
+import { HANGAR } from './machine-shed.js';
 
-export const GROUND_STATION = { x: -20, z: -17, name: '主屋（地面站）' };
+const centre = p => ({ x: (p.x0 + p.x1) / 2, z: (p.z0 + p.z1) / 2 });
+const pad = PADDOCKS.find(p => p.id === 'cattle');
 
+export const GROUND_STATION = { x: HANGAR.pad.x, z: HANGAR.pad.z, name: '农机房（地面站）' };
+
+// 每一个名字都从 layout.js 的落位表算，不再抄字面量。这一轮之前它们是旧的：量回来
+// 「牛舍」离真的牛舍 121.7 m、「配电房」离真的配电房 138.7 m —— 航线喊着的都是已经不
+// 在那儿的东西，屏幕上就是一段"飞过一片空草地然后停三秒拍照"。
 export const ROUTE = [
-  { name: '主屋', x: -20, z: -17 },
-  { name: '牛舍', x: 25, z: -25 },
-  { name: '饲料仓', x: 26, z: 18 },
-  { name: '水塔', x: 45, z: 25 },
-  { name: '水泵房', x: 43, z: 5 },
-  { name: '牛栏', x: -25, z: 38 },
-  { name: '农机库', x: -28, z: 23 },
-  { name: '配电房', x: -42, z: -2 },
+  { name: '主屋', x: SITES.house.x, z: SITES.house.z },
+  { name: '牛舍', x: SITES.barn.x, z: SITES.barn.z },
+  { name: '饲料仓', x: SITES.warehouse.x, z: SITES.warehouse.z },
+  { name: '水塔', x: SITES.tower.x, z: SITES.tower.z },
+  { name: '水泵房', x: SITES.pump.x, z: SITES.pump.z },
+  { name: '牛栏', x: centre(pad).x, z: centre(pad).z },
+  { name: '农机房', x: SITES.machine.x, z: SITES.machine.z },
+  { name: '配电房', x: SITES.power.x, z: SITES.power.z },
 ];
 
 // The rig's origin is the landing-skid height, so pos.y reads as altitude
 // above ground and the gimbal camera stays above the surface when landed.
 const GEAR = 1.05;
+// 停机坪在库里，库的地坪比 plateau 高出台基那一截：落在屋里时整机要跟着抬起来，
+// 不然看起来是陷进地坪 0.5 m。落在场外就是 0。
+const floorAt = (x, z) => (Math.abs(x - HANGAR.centre.x) < HANGAR.hx && Math.abs(z - HANGAR.centre.z) < HANGAR.hz
+  ? HANGAR.floor : 0);
+// 架高 = 离地高度 + 起落架 + 脚下那块地坪。四个放 rig 的地方一律走这个，别再各写一遍。
+const rigY = (x, y, z) => y + GEAR + floorAt(x, z);
+/* 机身自己的上下边界，从 rig 的世界包围盒量回来的（停在停机位上、rig 原点 1.55 时，
+   最低点 0.52、最高点 2.68）：原点往下 1.03 是起落架底，往上 1.13 是桨盘顶。
+   原来这两个数写的 0.95 / 0.55，是从模型的设计意图抄的，比真实几何小了一圈 ——
+   于是"屋里允许的最大高度"算出来 2.4 m，实际机身顶已经到 4.58，离门楣只剩 17 cm。 */
+const RIG_LOW = 1.03;
+const RIG_HIGH = 1.13;
+// 旋翼扫掠半径：把四片桨各转一圈取顶点到机心的最大距离，量到 4.3 m（支臂在 ±1.90 对角、
+// 斜着算 2.69，再加桨叶 1.4）。静止时的包围盒半宽只有 2.75~3.35，用那个数会少算一圈 ——
+// 门洞和护栏这两处都是按这个 4.3 定的。
+const RIG_HALF = 4.3;
+const HEAD_ROOM = 0.25;        // 蹭门楣的余量
+// 屋里能允许的最大离地高度：净高不是墙上沿，而是檐口外伸那块屋面的下沿（4.25，量出来的），
+// 它比墙上沿低 0.5 m —— 出库那段路正好要从它底下过，按墙上沿给的 1.82 m 会让桨顶切到檐板
+//（上一轮量到起飞阶段和 roofMat 打了 99 帧，机身顶 4.58 / 檐下 4.25）。
+const CEIL = Math.min(HANGAR.wallTop, HANGAR.eaveY);
+const HANGAR_MAX_Y = CEIL - HEAD_ROOM - GEAR - HANGAR.floor - RIG_HIGH;
+// 整机压到屋脊之上所需的高度：屋顶最高点是量出来的 7.34，机身最低点在 pos.y 之下
+// GEAR+地坪-RIG_LOW = 0.52，再加 30 cm 余量 → 7.12 m。
+const ROOF_HOLD = HANGAR.ridgeTop + 0.3 - (GEAR + HANGAR.floor - RIG_LOW);
 
 const PATROL_ALT = 18;
 const SPEED = 9;
@@ -37,6 +75,10 @@ export const view = { fpv: false, follow: false, frame: null };
 
 export const drone = {
   mode: 'IDLE',
+  // 返航的最后一段（门外进近点 -> 停机位）一旦开始就锁住，见 updateDrone 的 RTL 分支。
+  docked: false,
+  // 机身此刻在屋顶之上还是之下（滞回，见 integrate）。库顶是实的，这一层区别只能记住。
+  overRoof: false,
   source: 'manual',
   // The board's own answer to "who is flying the sticks": 1 while it is forwarding
   // them to the flight controller, 0 when it has released them, null when no frame
@@ -56,7 +98,7 @@ export const drone = {
   boardAgl: null,
   pos: new THREE.Vector3(GROUND_STATION.x, 0, GROUND_STATION.z),
   vel: new THREE.Vector3(),
-  yaw: 0,
+  yaw: Math.PI,   // 机头朝门外：模型的尾在 +z、机头在 -z，所以 π 才是"对着库门停着"
   targetAlt: PATROL_ALT,
   battery: 100,
   rssi: -42,
@@ -160,7 +202,7 @@ const tail = new THREE.Mesh(
 tail.position.set(0, 0.1, 1.8);
 rig.add(tail);
 
-rig.position.set(drone.pos.x, GEAR, drone.pos.z);
+rig.position.set(drone.pos.x, rigY(drone.pos.x, 0, drone.pos.z), drone.pos.z);
 scene.add(rig);
 
 export const fpvCamera = new THREE.PerspectiveCamera(96, 16 / 9, 0.1, 600);
@@ -174,8 +216,23 @@ function steerTo(x, z, dt) {
   const dx = x - drone.pos.x;
   const dz = z - drone.pos.z;
   const d = Math.hypot(dx, dz) || 1;
-  drone.vel.x = (dx / d) * SPEED;
-  drone.vel.z = (dz / d) * SPEED;
+  // Two things keep the aircraft from vibrating through a waypoint.
+  //
+  // `ease`: writing the velocity straight from the bearing makes the aircraft's commanded
+  // direction flip 180 degrees on the very frame it crosses the target. Measured on the
+  // live page at 144 fps: vx alternated +5.317 / -5.317 every other frame, and because the
+  // model's bank is driven off that velocity, the FPV lens swung ~150 milliradians a frame
+  // -- a shake at 72 Hz, worst exactly when it rounded a waypoint or changed heading.
+  // Easing the speed to zero inside the last few metres is what an arrival looks like.
+  //
+  // `k`: velocity is a state with momentum, not a decision. Blending toward the commanded
+  // velocity is what stops a stick press (or a release) from stepping the airframe.
+  const ease = Math.min(1, d / 6);
+  const wx = (dx / d) * SPEED * ease;
+  const wz = (dz / d) * SPEED * ease;
+  const k = Math.min(1, dt * 2.2);
+  drone.vel.x += (wx - drone.vel.x) * k;
+  drone.vel.z += (wz - drone.vel.z) * k;
   // The gimbal and the nose are on -Z, so the heading must point -Z at the
   // waypoint -- atan2(dx, dz) would fly it backwards.
   const want = Math.atan2(-dx, -dz);
@@ -186,21 +243,12 @@ function steerTo(x, z, dt) {
   return d;
 }
 
-function descend(dt) {
-  drone.vel.set(0, 0, 0);
-  drone.pos.y = Math.max(0, drone.pos.y - 5 * dt);
-  if (drone.pos.y <= 0.001) {
-    drone.pos.y = 0;
-    drone.mode = 'IDLE';
-    drone.alert = '';
-  }
-}
-
 export function takeoff() {
   if (drone.mode === 'IDLE') {
     drone.mode = 'MANUAL';
     drone.source = 'manual';
     drone.targetAlt = 8;
+    drone.docked = false;
     drone.alert = '';
   }
 }
@@ -227,6 +275,7 @@ export function startPatrol() {
   drone.mode = 'PATROL';
   drone.source = 'manual';
   drone.targetAlt = PATROL_ALT;
+  drone.docked = false;
   drone.alert = '';
 }
 
@@ -483,14 +532,73 @@ export function releaseBoardFlight() {
   if (drone.mode === 'IDLE') drone.targetAlt = 0;
 }
 
+/* 全场能飞到的方形边界。原来这个数是 ±95，那是这一轮之前的场：水泵房现在在 x=110，
+   航线会被这堵墙拦在半路上，所以按圆缘（r=130）留 10 m 收到 ±120。 */
+const ROAM = 120;
+
+/* 屋顶是实的，机身在竖直方向上有三层，门管的就是这三层之间不许乱穿：
+     LOW   低于门洞净高 1.32 —— 屋里那一层，进出都只能走门洞；
+     MID   净高以上、屋脊以下 —— 这一层在库里没有地方容身（要么在屋面里，要么在 attic 里），
+           唯一合法的动作者是往门外走并在那里把高度放掉或爬出去；
+     HIGH  屋脊(7.34)以上 —— 屋顶上方，随便飞，巡航从农机房头顶 18 m 过就走这一层。
+   夹高度这件事必须和"它从哪一层来"绑在一起，否则就会瞬移：上一版对 LOW 之外一律回
+   [ROOF_HOLD, 45]，于是一架 1.5 m 进库的飞机被一帧弹到 7.12 m，然后在两层之间以 3 Hz
+   来回弹了 80 s 把电烧光（轨迹：y 在 5.5 和 7.12 之间、局z 钉在 9.5）。
+   所以 MID 层只改方向盘、不碰高度；HIGH 层才用屋脊当地板，而且只在它确实是"往下掉"时。 */
+function hangarGate(dt) {
+  const p = drone.pos, c = HANGAR.centre;
+  // 护栏要按整机占的地方算，不是按机身中心算：桨盘投影 5.5 x 6.7 m，中心一出檐口外沿，
+  // 尾巴还在檐板底下 —— 量到起飞段和檐板(fascia)打了 47 帧，机身顶 4.27 / 檐板下沿 4.25。
+  const dx = Math.abs(p.x - c.x), dz = Math.abs(p.z - c.z);
+  if (dx >= HANGAR.hx + RIG_HALF || dz >= HANGAR.hz + RIG_HALF) return null;
+  const steer = (go) => {
+    const gx = go.x - p.x, gz = go.z - p.z;
+    const d = Math.hypot(gx, gz);
+    if (d < 0.25) { drone.vel.x = 0; drone.vel.z = 0; return; }
+    const v = Math.min(4, d / 0.6);
+    drone.vel.x = gx / d * v;
+    drone.vel.z = gz / d * v;
+    drone.yaw = Math.atan2(-gx, -gz);                    // 模型机头在 -z
+  };
+  const inRoof = dx < HANGAR.hx && dz < HANGAR.hz;
+  if (p.y > HANGAR_MAX_Y + 0.1) {
+    if (inRoof && drone.overRoof) {
+      if (drone.targetAlt >= ROOF_HOLD) return null;     // HIGH 层从头顶飞过：不归门管
+      drone.targetAlt = HANGAR_MAX_Y;                    // 出去以后就能降到门洞高度
+      steer(HANGAR.out);
+      return [ROOF_HOLD, 45];
+    }
+    steer(HANGAR.out);                                   // MID 层：只拦方向，不拦高度
+    return [0, 45];
+  }
+  // 机头先对齐门轴再谈进退：门洞半宽 3.7 m，机身转到 45° 时外接半径 4.34 m，在库口
+  // 转弯必刮门柱（返航量到 16 帧切在门框立柱上）。转弯这件事留给门外那片空地。
+  let a = drone.yaw % (Math.PI * 2);
+  if (a > Math.PI) a -= Math.PI * 2;
+  if (a < -Math.PI) a += Math.PI * 2;
+  const axis = Math.abs(a) < Math.PI / 2 ? 0 : (a > 0 ? Math.PI : -Math.PI);
+  drone.yaw += (axis - a) * Math.min(1, dt * 3);
+  const intent = drone.targetAlt - p.y;
+  // 只在真有上/下意图的时候接管方向盘：平飞穿过机库（手动低空飞）不该被弹到门外，
+  // 而 ±0.3 的死区是因为 out 和 pad 两个目标在意图接近零时会来回抖。
+  if (Math.abs(intent) < 0.3) return [0, HANGAR_MAX_Y];
+  steer(intent > 0 ? HANGAR.out : HANGAR.pad);
+  return [0, HANGAR_MAX_Y];
+}
+
 function integrate(dt) {
   const dy = drone.targetAlt - drone.pos.y;
   drone.vel.y = Math.max(-6, Math.min(6, dy * 0.9));
+  // 分层的滞回状态放在这里更新而不是门里：门只在库口那一圈生效，飞机在场上怎么飞到的
+  // 哪一层它看不见。越过屋脊算 HIGH，落回门洞净高算 LOW，中间那一档沿用上一层。
+  if (drone.pos.y >= ROOF_HOLD) drone.overRoof = true;
+  else if (drone.pos.y <= HANGAR_MAX_Y) drone.overRoof = false;
+  const band = hangarGate(dt);
   drone.pos.addScaledVector(drone.vel, dt);
-  drone.pos.x = Math.max(-95, Math.min(95, drone.pos.x));
-  drone.pos.z = Math.max(-95, Math.min(95, drone.pos.z));
+  if (band) drone.pos.y = Math.max(band[0], Math.min(band[1], drone.pos.y));
+  drone.pos.x = Math.max(-ROAM, Math.min(ROAM, drone.pos.x));
+  drone.pos.z = Math.max(-ROAM, Math.min(ROAM, drone.pos.z));
   if (drone.pos.y < 0) { drone.pos.y = 0; drone.vel.y = 0; }
-  if (drone.pos.y > 45) drone.pos.y = 45;
 }
 
 export function updateDrone(dt, time) {
@@ -504,16 +612,17 @@ export function updateDrone(dt, time) {
   sendAxes(false);
 
   if (d.mode === 'IDLE') {
+    d.docked = false;
     // "On the ground" has to mean on the ground. The board reports LANDED, and a
     // model that froze wherever it last was commanded reads as a stuck sim
     // rather than as a finished flight.
     if (d.pos.y > 0) {
       d.pos.y = Math.max(0, d.pos.y - 3.0 * dt);
       d.vel.set(0, 0, 0);
-      rig.position.set(d.pos.x, d.pos.y + GEAR, d.pos.z);
+      rig.position.set(d.pos.x, rigY(d.pos.x, d.pos.y, d.pos.z), d.pos.z);
     }
     props.forEach(p => { p.rotor.rotation.y += p.dir * dt * 1.2; });
-    rig.position.set(d.pos.x, d.pos.y + GEAR, d.pos.z);
+    rig.position.set(d.pos.x, rigY(d.pos.x, d.pos.y, d.pos.z), d.pos.z);
     rig.rotation.set(0, d.yaw, 0);
     gimbal.rotation.x = -0.25 + Math.sin(time * 0.6) * 0.05;
     updateFpv();
@@ -542,25 +651,60 @@ export function updateDrone(dt, time) {
       }
     }
   } else if (d.mode === 'RTL') {
-    const dist = steerTo(GROUND_STATION.x, GROUND_STATION.z, dt);
-    if (dist < 2.5 && d.source !== 'board') {
+    // 归航分两段，中间以门外的进近点为界：先保持巡航高度飞到门前，再把高度放到门洞净空，
+    // 最后正对门洞直飞进来。少了第一段会出两种毛病：从航线上斜着往停机位扎，桨盘切到门柱
+    //（桨盘投影 5.5 x 6.7 m，转到 45° 时外接半径 4.34 m，盖过 3.7 m 的门洞半宽），
+    // 以及从屋顶正上方直接掉进库里。
+    const out = HANGAR.out, c = HANGAR.centre;
+    const dOut = Math.hypot(d.pos.x - out.x, d.pos.z - out.z);
+    const inPlan = Math.abs(d.pos.x - c.x) < HANGAR.hx && Math.abs(d.pos.z - c.z) < HANGAR.hz;
+    // 进库这一步必须带滞回：阈值两边一来，dock 就一帧真一帧假，目标高度在 0 和门洞净空之间
+    // 抖，飞机吊在门前 3 m 处不进不退，56 s 后把电烧光（量到的终点是 [-32,0,-38.3]，离停机位
+    // 6.1 m）。一旦够着条件就锁上，直到落回地面或重新起飞才清。
+    if (!d.docked && d.pos.y <= HANGAR_MAX_Y + 0.2 && (inPlan || dOut < 6)) d.docked = true;
+    const dist = steerTo(d.docked ? GROUND_STATION.x : out.x, d.docked ? GROUND_STATION.z : out.z, dt);
+    // 放高度这件事要在机身已经压在停机位上方之后再做：一路降到 0 再开进库门的话，机身
+    // 一角的最低点会贴着台基上沿（0.5 m）擦过去 —— 量到 27 帧和台基顶面相交，那时离停机位还有 8 m。
+    d.targetAlt = d.docked ? (dist < 2.5 ? 0 : HANGAR_MAX_Y) : dOut < 20 ? HANGAR_MAX_Y : PATROL_ALT;
+    if (d.docked && dist < 1 && d.source !== 'board') {
       d.vel.set(0, 0, 0);
-      d.targetAlt = 0;
-      if (d.pos.y < 0.6) d.mode = 'LAND';
+      d.mode = 'LAND';
     }
   } else if (d.mode === 'LAND') {
-    descend(dt);
+    // 降落也走 integrate 那条唯一的垂直积分，别另起一条绕开门的路径。
+    d.targetAlt = 0;
+    // 已经进库的降落要继续往停机位收：只给垂直的话，落地那一刻还留着进库的速度，
+    // 量到的是停在离停机位 1.0 m 的地方。但机身还在半高上时不能往里拉，那会把整机拽进屋面。
+    if (d.docked) {
+      const low = d.pos.y <= HANGAR_MAX_Y + 0.1;
+      const tx = low ? GROUND_STATION.x : HANGAR.out.x, tz = low ? GROUND_STATION.z : HANGAR.out.z;
+      // 已经基本坐在停机位上就别再 steerTo：目标就在脚下的时候 atan2(-0,-0) 给的是噪声方向，
+      // 机头会原地乱转 —— 量到落库后偏航从 0.29 一路漂到 1.1，桨尖扫在门柱上。
+      if (Math.hypot(d.pos.x - tx, d.pos.z - tz) > 0.6) steerTo(tx, tz, dt);
+    }
   } else {
     const cos = Math.cos(d.yaw), sin = Math.sin(d.yaw);
-    d.vel.x = input.side * SPEED * cos + input.fwd * SPEED * sin;
-    d.vel.z = -input.side * SPEED * sin + input.fwd * SPEED * cos;
+    // Same momentum as the route follower: a stick that snaps to full deflection should
+    // bank the aircraft into the move, not teleport its velocity -- the body's bank is
+    // read straight off these two numbers, so a step here is a step in the FPV picture.
+    const wx = input.side * SPEED * cos + input.fwd * SPEED * sin;
+    const wz = -input.side * SPEED * sin + input.fwd * SPEED * cos;
+    const k = Math.min(1, dt * 2.6);
+    d.vel.x += (wx - d.vel.x) * k;
+    d.vel.z += (wz - d.vel.z) * k;
     d.yaw += input.yaw * dt * 1.5;
     // The climb stick moves the target, so releasing it holds the altitude that
     // was reached -- and a takeoff command is not overwritten on frame one.
     d.targetAlt = Math.max(0, Math.min(45, d.targetAlt + input.climb * 9 * dt));
   }
 
-  if (d.mode !== 'LAND') integrate(dt);
+  integrate(dt);
+  if (d.mode === 'LAND' && d.pos.y <= 0.02) {
+    d.pos.y = 0;
+    d.vel.set(0, 0, 0);
+    d.mode = 'IDLE';
+    d.alert = '';
+  }
 
   const link = Math.hypot(d.pos.x - GROUND_STATION.x, d.pos.z - GROUND_STATION.z);
   if (d.source !== 'board') d.rssi = Math.round(-44 - link * 0.46);
@@ -580,7 +724,7 @@ export function updateDrone(dt, time) {
   const spin = d.mode === 'MANUAL' && Math.abs(input.climb) < 0.05 ? 26 : 44;
   props.forEach(p => { p.rotor.rotation.y += p.dir * dt * spin; });
 
-  rig.position.set(d.pos.x, d.pos.y + GEAR, d.pos.z);
+  rig.position.set(d.pos.x, rigY(d.pos.x, d.pos.y, d.pos.z), d.pos.z);
   // Nose on -Z: forward speed dips the nose (+Z rotation lifts it), and rolling
   // right means the +X arm drops.
   rig.rotation.set(d.vel.z * 0.022, d.yaw, -d.vel.x * 0.022);

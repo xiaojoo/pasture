@@ -2,6 +2,10 @@ import * as THREE from 'three';
 import { controls } from './camera.js';
 import { camera, renderer, scene } from './scene.js';
 import { isNight } from '../state/time.js';
+import { advanceSky } from './sky.js';
+import { advanceWater } from '../world/river.js';
+import { advanceFalls } from '../world/falls.js';
+import { advanceGrid } from './grid.js';
 import { cows } from '../world/cows.js';
 import { streetLights } from '../world/street-lights.js';
 import { water } from '../world/water-tower.js';
@@ -20,6 +24,11 @@ new THREE.Vector2();
 
 const chase =
 new THREE.Vector3();
+
+// Whether the previous frame was already being flown by the follow view: the frame that
+// turns it on is placed on the rig instead of eased onto it.
+let wasFollow =
+false;
 
 const UP =
 new THREE.Vector3(
@@ -155,6 +164,26 @@ export function animate(){
     );
 
 
+    // Clouds drift and the river runs off the same clock the fleet does, so a paused
+    // animation loop stops the weather too rather than desynchronising it.
+    advanceSky(
+        dt
+    );
+
+    advanceWater(
+        dt
+    );
+
+    advanceFalls(
+        dt,
+        time
+    );
+
+    advanceGrid(
+        dt
+    );
+
+
     if(view.follow){
 
         const k =
@@ -174,16 +203,44 @@ export function animate(){
             drone.pos
         );
 
-        camera.position.lerp(
-            chase,
-            k
-        );
+        if (
+            wasFollow
+        ){
+            camera.position.lerp(
+                chase,
+                k
+            );
 
-        controls.target.lerp(
-            drone.pos,
-            k
-        );
+            controls.target.lerp(
+                drone.pos,
+                k
+            );
+        } else {
+            // The first frame of the follow view is placed, not eased. Lerping from wherever
+            // the operator had orbited to -- measured 112 m out, on the far side of the barn --
+            // sends the camera flying through the scene for about a second, and across that
+            // transit the picture's best-fit shift reverses direction 5.8 times a second.
+            // That is the 抖 he sees when he switches view; once the camera is on the rig the
+            // same lerp measures 0.2 reversals a second.
+            camera.position.copy(
+                chase
+            );
 
+            controls.target.copy(
+                drone.pos
+            );
+        }
+
+        wasFollow =
+        true;
+
+    }
+
+    else if (
+        wasFollow
+    ){
+        wasFollow =
+        false;
     }
 
 
@@ -207,12 +264,18 @@ export function animate(){
                     lamp.light.visible
                 ){
 
+                    // Scale the intensity the lamp was built with. This used to assign
+                    // `1.75 + sin(...)` outright, which silently replaced the designed
+                    // 90 candela with a value that produced no measurable pool at all --
+                    // and it meant the constructor's number was decoration.
                     lamp.light.intensity =
-                    1.75 +
-                    Math.sin(
-                        time * 2 +
-                        index
-                    ) * .1;
+                    lamp.baseIntensity * (
+                        1 +
+                        Math.sin(
+                            time * 2 +
+                            index
+                        ) * .06
+                    );
 
                 }
 

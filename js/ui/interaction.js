@@ -51,6 +51,25 @@ warehouse:[
 machine:[
     "农机库",
     "拖拉机 / 收割机 / 农机设备"
+],
+
+/* 住宅六院：id 由 js/world/layout.js 的 PLOTS 生成（x 从小到大 res-1..6），稳定不随位置变。
+   表里必须一个一个列出来，因为点中房子读的是 buildingNames[hit][0]，缺一项就抛。 */
+'res-1':[ "西三院", "访客院 · 三开间" ],
+'res-2':[ "西二院", "学童与先生院 · 三开间" ],
+'res-3':[ "西一院", "家族宅 · 五开间正房" ],
+'res-4':[ "东一院", "匠作院 · 五开间正房" ],
+'res-5':[ "东二院", "账房与伙房 · 三开间" ],
+'res-6':[ "东三院", "牧工住宅 · 三开间" ],
+
+pump:[
+    "水泵房",
+    "供水系统取水 / 加压"
+],
+
+power:[
+    "配电房",
+    "全场供电与馈线柜"
 ]
 
 };
@@ -130,7 +149,7 @@ renderer.domElement.addEventListener(
 
 
         const data =
-        buildingNames[hit];
+        buildingNames[hit] || [ hit, "" ];
 
 
         buildingName.innerText =

@@ -6,8 +6,8 @@ import { scene } from './scene.js';
 
 export const ambient =
 new THREE.HemisphereLight(
-    0xb7d7c0,
-    0x15251a,
+    0xcfe6d6,
+    0x46523f,
     .7
 );
 
@@ -37,17 +37,28 @@ sun.shadow.mapSize.width =
 sun.shadow.mapSize.height =
 2048;
 
+// The ranch is now 130 units of plateau with a 6-unit fence and a 24-unit tree on it, and the
+// sun is low enough that a shadow reaches well past the object casting it. At the old +/-100
+// the east row of the avenue and the whole cattle yard fell outside the map and stopped
+// shadowing at all.
 sun.shadow.camera.left =
--100;
+-150;
 
 sun.shadow.camera.right =
-100;
+150;
 
 sun.shadow.camera.top =
-100;
+150;
 
 sun.shadow.camera.bottom =
--100;
+-150;
+
+// A 27-degree sun across a 2048 map over 300 units is 14.6 texels per metre of shadow, and
+// the depth step per texel along a shallow ray is coarse enough for the ground to eat its own
+// shadow. Normal bias fixes that without the peter-panning a plain depth bias would give the
+// thin fence rails.
+sun.shadow.normalBias =
+0.06;
 
 scene.add(
     sun

@@ -1,6 +1,5 @@
-import * as THREE from 'three';
+import { applySky } from '../core/sky.js';
 import { ambient, sun } from '../core/lighting.js';
-import { scene } from '../core/scene.js';
 import { showToast } from '../ui/toast.js';
 import { buildings } from '../world/house.js';
 import { streetLights } from '../world/street-lights.js';
@@ -41,45 +40,42 @@ export function setTimeMode(mode){
 
     if(day){
 
-        scene.background =
-        new THREE.Color(
-            0x8db7cc
-        );
-
-        scene.fog.color =
-        new THREE.Color(
-            0x8db7cc
-        );
-
-        scene.fog.near =
-        70;
-
-        scene.fog.far =
-        180;
-
         ambient.color.set(
-            0xb7d7c0
+            0xcfe6d6
         );
 
+        // The old near-black bounce colour is what made every north-facing slope a
+        // silhouette: with no environment map this light is the only thing filling the
+        // shadows, and the hills have a lot of shadow.
         ambient.groundColor.set(
-            0x15251a
+            0x46523f
         );
 
         ambient.intensity =
-        1.05;
+        1.15;
 
         sun.color.set(
-            0xfff1d2
+            0xffe0b4
         );
 
+        // Late afternoon, from the left of the overview. The reference is lit at about
+        // twenty-seven degrees of elevation out of the west-ish, which is what throws the
+        // avenue shadows across the drive and gilds one side of every crown; the old pose was
+        // (50,90,40) -- fifty-four degrees, near overhead, so nothing cast a shadow long
+        // enough to read and the whole place looked like a noon catalogue.
         sun.position.set(
-            50,
-            90,
-            40
+            -150,
+            78,
+            62
         );
 
         sun.intensity =
-        2.7;
+        3.3;
+
+        // The dome, the sun disc and the fog colour all come out of one call now, so the
+        // haze the far hills dissolve into is by construction the same colour as the sky
+        // behind them.
+        applySky('day', sun.position);
 
         streetLights.forEach(
             l => {
@@ -105,34 +101,16 @@ export function setTimeMode(mode){
 
     }else{
 
-        scene.background =
-        new THREE.Color(
-            0x06120c
-        );
-
-        scene.fog.color =
-        new THREE.Color(
-            0x0a1a16
-        );
-
-        // The ranch spans ~130 units from this camera; the daytime fog range
-        // washed the whole world into the near-black fog colour at night.
-        scene.fog.near =
-        150;
-
-        scene.fog.far =
-        460;
-
         ambient.color.set(
             0x5d7f9c
         );
 
         ambient.groundColor.set(
-            0x16241a
+            0x1d2c24
         );
 
         ambient.intensity =
-        .55;
+        .62;
 
         sun.color.set(
             0xa8c8ff
@@ -146,6 +124,10 @@ export function setTimeMode(mode){
 
         sun.intensity =
         .55;
+
+        // At night the directional light is the moon, and applySky puts the disc in the
+        // sky at the same place the shadows come from.
+        applySky('night', sun.position);
 
 
         // One path for the lamps in every mode: both setters re-read the two
